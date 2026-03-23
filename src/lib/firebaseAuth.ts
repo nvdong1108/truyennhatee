@@ -1,5 +1,6 @@
 import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, onAuthStateChanged } from 'firebase/auth';
 import { app } from './firebase';
+import { User } from 'firebase/auth';
 
 const auth = getAuth(app);
 
@@ -16,6 +17,10 @@ export const signOutFirebase = async () => {
     return await auth.signOut();
 };
 
-export const subscribeToAuthState = (callback) => {
-    onAuthStateChanged(auth, callback);
+export interface AuthStateCallback {
+    (user: User | null): void;
+}
+
+export const subscribeToAuthState = (callback: AuthStateCallback): (() => void) => {
+    return onAuthStateChanged(auth, callback);
 };
