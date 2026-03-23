@@ -1,125 +1,114 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useState, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { User } from '@/lib/types';
-import {
-  getStoredUser,
-  login as authLogin,
-  requestRegistrationOtp as authRequestRegistrationOtp,
-  register as authRegister,
-  clearUser,
-  updateUserData,
-  canReadChapter as authCanRead,
-  UNLOCK_COST,
-} from '@/lib/auth';
+import { canReadChapter as canReadChapterRule, UNLOCK_COST } from '@/lib/auth';
+import { signOutFirebase, subscribeToAuthState } from '@/lib/firebaseAuth';
+import { getOrCreateUserProfile, unlockStoryForUser } from '@/lib/userProfile';
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
 
 interface AuthContextType {
   user: User | null;
   isLoading: boolean;
-  login: (username: string, password: string) => Promise<{ success: boolean; error?: string }>;
-  requestRegistrationOtp: (
-    contact: string
-  ) => Promise<{ success: boolean; error?: string; resendInSeconds?: number; otpPreview?: string }>;
-  register: (contact: string, password: string, otp: string) => Promise<{ success: boolean; error?: string }>;
-  logout: () => void;
+  logout: () => Promise<void>;
   canReadChapter: (storyId: string, chapterNumber: number) => boolean;
-  unlockStory: (storyId: string) => { success: boolean; error?: string };
+  unlockStory: (storyId: string) => Promise<{ success: boolean; error?: string }>;
+  refreshProfile: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
+  const refreshProfile = useCallback(async () => {
+    if (!user?.userId) return;
+    const ref = doc(db, 'users', user.userId);
+    const snap = await getDoc(ref);
+    if (snap.exists()) setUser(snap.data() as User);
+  }, [user?.userId]);
+
   useEffect(() => {
-    const stored = getStoredUser();
-    setUser(stored);
-    setIsLoading(false);
+    const unsub = subscribeToAuthState(async (fbUser: any) => {
+      try {
+        setIsLoading(true);
+
+        if (!fbUser) {
+          setUser(null);
+          return;
+        }
+
+        const profile = await getOrCreateUserProfile({
+          uid: fbUser.uid,
+          email: fbUser.email,
+          displayName: fbUser.displayName,
+          photoURL: fbUser.photoURL,
+        });
+
+        setUser(profile);
+      } finally {
+        setIsLoading(false);
+      }
+    });
+
+    return () => {
+      if (typeof unsub === 'function') unsub();
+    };
   }, []);
 
-  const login = useCallback(
-    async (username: string, password: string): Promise<{ success: boolean; error?: string }> => {
-      const result = authLogin(username, password);
-      if (result) {
-        setUser(result);
-        return { success: true };
-      }
-      return { success: false, error: 'Tên đăng nhập hoặc mật khẩu không đúng' };
-    },
-    []
-  );
-
-  const requestRegistrationOtp = useCallback(
-    async (
-      contact: string
-    ): Promise<{ success: boolean; error?: string; resendInSeconds?: number; otpPreview?: string }> => {
-      return authRequestRegistrationOtp(contact);
-    },
-    []
-  );
-
-  const register = useCallback(
-    async (contact: string, password: string, otp: string): Promise<{ success: boolean; error?: string }> => {
-      const result = authRegister(contact, password, otp);
-      if (result.success) {
-        const stored = getStoredUser();
-        setUser(stored);
-      }
-      return result;
-    },
-    []
-  );
-
-  const logout = useCallback(() => {
-    clearUser();
+  const logout = useCallback(async () => {
+    await signOutFirebase();
     setUser(null);
-  }, []);
+    router.push('/');
+  }, [router]);
 
   const canReadChapter = useCallback(
-    (storyId: string, chapterNumber: number): boolean => {
-      return authCanRead(user, storyId, chapterNumber);
+    (storyId: string, chapterNumber: number) => {
+      return canReadChapterRule(user, storyId, chapterNumber);
     },
     [user]
   );
 
   const unlockStory = useCallback(
-    (storyId: string): { success: boolean; error?: string } => {
+    async (storyId: string): Promise<{ success: boolean; error?: string }> => {
       if (!user) return { success: false, error: 'Vui lòng đăng nhập' };
       if (user.role === 'VIP') return { success: true };
       if (user.unlockedStoryIds.includes(storyId)) return { success: true };
-      if (user.gems < UNLOCK_COST) {
-        return { success: false, error: 'Không đủ ngọc. Vui lòng nạp thêm.' };
-      }
+      if (user.gems < UNLOCK_COST) return { success: false, error: 'Không đủ ngọc. Vui lòng nạp thêm.' };
 
-      const updatedUser: User = {
-        ...user,
-        gems: user.gems - UNLOCK_COST,
-        unlockedStoryIds: [...user.unlockedStoryIds, storyId],
-      };
-      updateUserData(updatedUser);
-      setUser(updatedUser);
-      return { success: true };
+      try {
+        await unlockStoryForUser(user.userId, storyId, UNLOCK_COST);
+
+        // refresh local state
+        const ref = doc(db, 'users', user.userId);
+        const snap = await getDoc(ref);
+        if (snap.exists()) setUser(snap.data() as User);
+
+        return { success: true };
+      } catch (e: any) {
+        return { success: false, error: e?.message || 'Mở khóa thất bại' };
+      }
     },
     [user]
   );
 
-  return (
-    <AuthContext.Provider
-      value={{
-        user,
-        isLoading,
-        login,
-        requestRegistrationOtp,
-        register,
-        logout,
-        canReadChapter,
-        unlockStory,
-      }}
-    >
-      {children}
-    </AuthContext.Provider>
+  const value = useMemo(
+    () => ({
+      user,
+      isLoading,
+      logout,
+      canReadChapter,
+      unlockStory,
+      refreshProfile,
+    }),
+    [user, isLoading, logout, canReadChapter, unlockStory, refreshProfile]
   );
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth(): AuthContextType {
