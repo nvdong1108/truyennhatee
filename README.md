@@ -27,7 +27,7 @@ New registrations start with 50,000 💎.
 
 ## Tech Stack
 
-- **Next.js 14** (App Router)
+- **Next.js 15** (App Router)
 - **TypeScript**
 - **Tailwind CSS**
 - Auth & state stored in `localStorage`

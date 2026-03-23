@@ -1,5 +1,6 @@
 'use client';
 
+import { use } from 'react';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
@@ -7,17 +8,18 @@ import LockOverlay from '@/components/LockOverlay';
 import { getStoryBySlug, getChapter } from '@/lib/mockData';
 
 interface Props {
-  params: { slug: string; chapterNumber: string };
+  params: Promise<{ slug: string; chapterNumber: string }>;
 }
 
 export default function ChapterPage({ params }: Props) {
-  const chapterNum = parseInt(params.chapterNumber, 10);
+  const { slug, chapterNumber } = use(params);
+  const chapterNum = parseInt(chapterNumber, 10);
   if (isNaN(chapterNum)) notFound();
 
-  const story = getStoryBySlug(params.slug);
+  const story = getStoryBySlug(slug);
   if (!story) notFound();
 
-  const chapter = getChapter(params.slug, chapterNum);
+  const chapter = getChapter(slug, chapterNum);
   if (!chapter) notFound();
 
   const { canReadChapter } = useAuth();

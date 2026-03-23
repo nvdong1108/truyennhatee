@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { use, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
@@ -10,11 +10,12 @@ import UnlockModal from '@/components/UnlockModal';
 import { getStoryBySlug } from '@/lib/mockData';
 
 interface Props {
-  params: { slug: string };
+  params: Promise<{ slug: string }>;
 }
 
 export default function StoryPage({ params }: Props) {
-  const story = getStoryBySlug(params.slug);
+  const { slug } = use(params);
+  const story = getStoryBySlug(slug);
   if (!story) notFound();
 
   const { user, canReadChapter } = useAuth();
