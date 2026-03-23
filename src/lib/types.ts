@@ -3,6 +3,8 @@ export type Role = 'GUEST' | 'MEMBER' | 'VIP';
 export interface User {
   userId: string;
   username: string;
+  email?: string;
+  phone?: string;
   role: Role;
   gems: number;
   unlockedStoryIds: string[];

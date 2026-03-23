@@ -6,22 +6,48 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 
 export default function RegisterPage() {
-  const { register } = useAuth();
+  const { requestRegistrationOtp, register } = useAuth();
   const router = useRouter();
-  const [username, setUsername] = useState('');
+  const [contact, setContact] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
+  const [otp, setOtp] = useState('');
+  const [otpSent, setOtpSent] = useState(false);
+  const [otpHint, setOtpHint] = useState('');
   const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
+  const [isSendingOtp, setIsSendingOtp] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+
+  const handleSendOtp = async () => {
+    setError('');
+    setMessage('');
+
+    if (!contact.trim()) {
+      setError('Vui lòng nhập email hoặc số điện thoại');
+      return;
+    }
+
+    setIsSendingOtp(true);
+    const result = await requestRegistrationOtp(contact.trim());
+    if (result.success) {
+      setOtpSent(true);
+      setMessage('Mã OTP đã được gửi. Mã có hiệu lực trong 5 phút.');
+      setOtpHint(result.otpPreview || '');
+    } else {
+      setError(result.error || 'Không thể gửi OTP');
+    }
+    setIsSendingOtp(false);
+  };
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!username.trim() || !password.trim()) {
+    if (!contact.trim() || !password.trim()) {
       setError('Vui lòng nhập đầy đủ thông tin');
       return;
     }
-    if (username.trim().length < 3) {
-      setError('Tên đăng nhập phải có ít nhất 3 ký tự');
+    if (!otpSent) {
+      setError('Vui lòng gửi OTP trước khi đăng ký');
       return;
     }
     if (password.length < 6) {
@@ -32,10 +58,14 @@ export default function RegisterPage() {
       setError('Mật khẩu xác nhận không khớp');
       return;
     }
+    if (!/^\d{6}$/.test(otp)) {
+      setError('OTP phải gồm 6 chữ số');
+      return;
+    }
 
     setIsLoading(true);
     setError('');
-    const result = await register(username.trim(), password);
+    const result = await register(contact.trim(), password, otp);
     if (result.success) {
       router.push('/');
     } else {
@@ -64,15 +94,37 @@ export default function RegisterPage() {
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-1.5">
-                Tên đăng nhập
+                Email hoặc số điện thoại
               </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={contact}
+                  onChange={(e) => setContact(e.target.value)}
+                  className="flex-1 bg-gray-800 border border-gray-600 text-gray-100 placeholder-gray-500 rounded-xl px-4 py-3 focus:outline-none focus:border-orange-500 transition-colors"
+                  placeholder="vd: ten@email.com hoặc 0912345678"
+                  autoComplete="username"
+                />
+                <button
+                  type="button"
+                  onClick={handleSendOtp}
+                  disabled={isSendingOtp}
+                  className="px-4 rounded-xl bg-gray-700 hover:bg-gray-600 disabled:opacity-60 text-white text-sm font-medium"
+                >
+                  {isSendingOtp ? 'Đang gửi...' : otpSent ? 'Gửi lại OTP' : 'Gửi OTP'}
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-1.5">Mã OTP</label>
               <input
                 type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
+                value={otp}
+                onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
                 className="w-full bg-gray-800 border border-gray-600 text-gray-100 placeholder-gray-500 rounded-xl px-4 py-3 focus:outline-none focus:border-orange-500 transition-colors"
-                placeholder="Nhập tên đăng nhập (tối thiểu 3 ký tự)"
-                autoComplete="username"
+                placeholder="Nhập mã OTP 6 số"
+                inputMode="numeric"
               />
             </div>
             <div>
@@ -102,6 +154,18 @@ export default function RegisterPage() {
               />
             </div>
 
+            {message && (
+              <p className="text-emerald-300 text-sm bg-emerald-900/20 border border-emerald-800/30 rounded-lg px-3 py-2">
+                {message}
+              </p>
+            )}
+
+            {otpHint && (
+              <p className="text-amber-300 text-sm bg-amber-900/20 border border-amber-700/30 rounded-lg px-3 py-2">
+                OTP demo (local): <span className="font-semibold tracking-wider">{otpHint}</span>
+              </p>
+            )}
+
             {error && (
               <p className="text-red-400 text-sm bg-red-900/20 border border-red-800/30 rounded-lg px-3 py-2">
                 {error}
@@ -113,7 +177,7 @@ export default function RegisterPage() {
               disabled={isLoading}
               className="w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-60 text-white font-semibold py-3 rounded-xl transition-colors mt-2"
             >
-              {isLoading ? 'Đang tạo tài khoản...' : 'Đăng Ký Miễn Phí'}
+              {isLoading ? 'Đang xác thực và tạo tài khoản...' : 'Xác Thực OTP & Đăng Ký'}
             </button>
           </form>
 

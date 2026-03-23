@@ -8,20 +8,20 @@ import { useAuth } from '@/contexts/AuthContext';
 export default function LoginPage() {
   const { login } = useAuth();
   const router = useRouter();
-  const [username, setUsername] = useState('');
+  const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!username.trim() || !password.trim()) {
+    if (!identifier.trim() || !password.trim()) {
       setError('Vui lòng nhập đầy đủ thông tin');
       return;
     }
     setIsLoading(true);
     setError('');
-    const result = await login(username.trim(), password);
+    const result = await login(identifier.trim(), password);
     if (result.success) {
       router.push('/');
     } else {
@@ -49,14 +49,14 @@ export default function LoginPage() {
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-1.5">
-                Tên đăng nhập
+                Tên đăng nhập / Email / Số điện thoại
               </label>
               <input
                 type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
+                value={identifier}
+                onChange={(e) => setIdentifier(e.target.value)}
                 className="w-full bg-gray-800 border border-gray-600 text-gray-100 placeholder-gray-500 rounded-xl px-4 py-3 focus:outline-none focus:border-orange-500 transition-colors"
-                placeholder="Nhập tên đăng nhập"
+                placeholder="Nhập username, email hoặc số điện thoại"
                 autoComplete="username"
               />
             </div>

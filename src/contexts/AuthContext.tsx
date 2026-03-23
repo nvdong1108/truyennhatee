@@ -5,6 +5,7 @@ import { User } from '@/lib/types';
 import {
   getStoredUser,
   login as authLogin,
+  requestRegistrationOtp as authRequestRegistrationOtp,
   register as authRegister,
   clearUser,
   updateUserData,
@@ -16,7 +17,10 @@ interface AuthContextType {
   user: User | null;
   isLoading: boolean;
   login: (username: string, password: string) => Promise<{ success: boolean; error?: string }>;
-  register: (username: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  requestRegistrationOtp: (
+    contact: string
+  ) => Promise<{ success: boolean; error?: string; resendInSeconds?: number; otpPreview?: string }>;
+  register: (contact: string, password: string, otp: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => void;
   canReadChapter: (storyId: string, chapterNumber: number) => boolean;
   unlockStory: (storyId: string) => { success: boolean; error?: string };
@@ -46,9 +50,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     []
   );
 
+  const requestRegistrationOtp = useCallback(
+    async (
+      contact: string
+    ): Promise<{ success: boolean; error?: string; resendInSeconds?: number; otpPreview?: string }> => {
+      return authRequestRegistrationOtp(contact);
+    },
+    []
+  );
+
   const register = useCallback(
-    async (username: string, password: string): Promise<{ success: boolean; error?: string }> => {
-      const result = authRegister(username, password);
+    async (contact: string, password: string, otp: string): Promise<{ success: boolean; error?: string }> => {
+      const result = authRegister(contact, password, otp);
       if (result.success) {
         const stored = getStoredUser();
         setUser(stored);
@@ -93,7 +106,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ user, isLoading, login, register, logout, canReadChapter, unlockStory }}
+      value={{
+        user,
+        isLoading,
+        login,
+        requestRegistrationOtp,
+        register,
+        logout,
+        canReadChapter,
+        unlockStory,
+      }}
     >
       {children}
     </AuthContext.Provider>
