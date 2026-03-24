@@ -2,12 +2,9 @@
 
 import React, { createContext, useContext, useEffect, useMemo, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import { useSession, signOut, SessionProvider } from 'next-auth/react';
 import { User } from '@/lib/types';
 import { canReadChapter as canReadChapterRule, UNLOCK_COST } from '@/lib/auth';
-import { signOutFirebase, subscribeToAuthState } from '@/lib/firebaseAuth';
-import { getOrCreateUserProfile, unlockStoryForUser } from '@/lib/userProfile';
-import { doc, getDoc } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
 
 interface AuthContextType {
   user: User | null;
@@ -20,55 +17,54 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
-export function AuthProvider({ children }: { children: React.ReactNode }) {
+function AuthProviderContent({ children }: { children: React.ReactNode }) {
   const router = useRouter();
+  const { data: session, status } = useSession();
   const [user, setUser] = useState<User | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isProfileLoading, setIsProfileLoading] = useState(true);
+
+  const fetchProfile = async () => {
+    try {
+      const res = await fetch('/api/user/profile');
+      if (res.ok) {
+        const data = await res.json();
+        setUser(data);
+      } else {
+        setUser(null);
+      }
+    } catch {
+      setUser(null);
+    }
+  };
 
   const refreshProfile = useCallback(async () => {
-    if (!user?.userId) return;
-    const ref = doc(db, 'users', user.userId);
-    const snap = await getDoc(ref);
-    if (snap.exists()) setUser(snap.data() as User);
-  }, [user?.userId]);
-
-  useEffect(() => {
-    const unsub = subscribeToAuthState(async (fbUser: any) => {
-      try {
-        setIsLoading(true);
-
-        if (!fbUser) {
-          setUser(null);
-          return;
-        }
-
-        const profile = await getOrCreateUserProfile({
-          uid: fbUser.uid,
-          email: fbUser.email,
-          displayName: fbUser.displayName,
-          photoURL: fbUser.photoURL,
-        });
-
-        setUser(profile);
-      } finally {
-        setIsLoading(false);
-      }
-    });
-
-    return () => {
-      if (typeof unsub === 'function') unsub();
-    };
+    await fetchProfile();
   }, []);
 
+  useEffect(() => {
+    if (status === 'loading') {
+      setIsProfileLoading(true);
+      return;
+    }
+
+    if (status === 'authenticated') {
+      fetchProfile().finally(() => setIsProfileLoading(false));
+    } else {
+      setUser(null);
+      setIsProfileLoading(false);
+    }
+  }, [status]);
+
   const logout = useCallback(async () => {
-    await signOutFirebase();
+    await signOut({ redirect: false });
     setUser(null);
     router.push('/');
   }, [router]);
 
   const canReadChapter = useCallback(
     (storyId: string, chapterNumber: number) => {
-      return canReadChapterRule(user, storyId, chapterNumber);
+      // Ép kiểu user về cấu trúc cũ để logic cũ hiểu
+      return canReadChapterRule(user as any, storyId, chapterNumber);
     },
     [user]
   );
@@ -81,20 +77,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (user.gems < UNLOCK_COST) return { success: false, error: 'Không đủ ngọc. Vui lòng nạp thêm.' };
 
       try {
-        await unlockStoryForUser(user.userId, storyId, UNLOCK_COST);
-
-        // refresh local state
-        const ref = doc(db, 'users', user.userId);
-        const snap = await getDoc(ref);
-        if (snap.exists()) setUser(snap.data() as User);
-
-        return { success: true };
+        const res = await fetch('/api/user/unlock', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ storyId, cost: UNLOCK_COST })
+        });
+        
+        const data = await res.json();
+        if (data.success) {
+          await refreshProfile();
+          return { success: true };
+        } else {
+          return { success: false, error: data.error || 'Mở khóa thất bại' };
+        }
       } catch (e: any) {
-        return { success: false, error: e?.message || 'Mở khóa thất bại' };
+        return { success: false, error: e?.message || 'Lỗi mạng khi mở khóa' };
       }
     },
-    [user]
+    [user, refreshProfile]
   );
+
+  const isLoading = status === 'loading' || isProfileLoading;
 
   const value = useMemo(
     () => ({
@@ -109,6 +112,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}
+
+export function AuthProvider({ children }: { children: React.ReactNode }) {
+  return (
+    <SessionProvider>
+      <AuthProviderContent>{children}</AuthProviderContent>
+    </SessionProvider>
+  );
 }
 
 export function useAuth(): AuthContextType {
