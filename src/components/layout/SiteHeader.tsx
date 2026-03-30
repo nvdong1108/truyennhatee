@@ -4,11 +4,7 @@ import Link from 'next/link';
 import { useState, useRef, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter, usePathname } from 'next/navigation';
-
-const GENRES = [
-  'Tu Tiên', 'Đấu Khí', 'Huyền Huyễn', 'Võ Thuật',
-  'Ngôn Tình', 'Kiếm Hiệp', 'Đô Thị', 'Hệ Thống', 'Dị Giới', 'Lịch Sử',
-];
+import { STORY_CATEGORIES } from '@/data/storyCategories';
 
 export interface SiteHeaderProps {
   isDark: boolean;
@@ -146,7 +142,7 @@ export default function SiteHeader({ isDark, onToggleTheme }: SiteHeaderProps) {
           {navLink('/', <IcHome />, 'Trang chủ')}
           {navLink('/hoan-thanh', <IcCheck />, 'Hoàn thành')}
           <span className="hidden sm:contents">
-            {navLink('/truyen-ngan', <IcList />, 'Truyện ngắn')}
+            {navLink('/the-loai', <IcList />, 'Thể loại')}
           </span>
         </nav>
 
@@ -176,13 +172,13 @@ export default function SiteHeader({ isDark, onToggleTheme }: SiteHeaderProps) {
             </button>
             {showGenre && (
               <div className={`absolute top-11 left-0 rounded-xl border shadow-xl w-36 py-1 z-50 ${dropBg}`}>
-                {GENRES.map((g) => (
+                {STORY_CATEGORIES.map((category) => (
                   <button
-                    key={g}
-                    onClick={() => { router.push(`/?genre=${encodeURIComponent(g)}`); setShowGenre(false); }}
+                    key={category.id}
+                    onClick={() => { router.push(category.url); setShowGenre(false); }}
                     className={`w-full text-left px-4 py-2 text-sm transition-colors ${dropItem}`}
                   >
-                    {g}
+                    {category.name}
                   </button>
                 ))}
               </div>
