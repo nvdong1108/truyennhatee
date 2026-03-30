@@ -6,8 +6,11 @@ import { BANNER_STORIES } from '@/data/bannerStories';
 import { Story } from '@/lib/types';
 import SiteHeader from '@/components/layout/SiteHeader';
 import HeroBanner from './HeroBanner';
-import StorySlider from './StorySlider';
-import NewlyUpdated from './NewlyUpdated';
+import TruyenNoiBat from './TruyenNoiBat';
+import TruyenQuangBa from './TruyenQuangBa';
+import TruyenMoiCapNhat from './TruyenMoiCapNhat';
+import TruyenXuHuong from './TruyenXuHuong';
+import BangXepHang from './BangXepHang';
 import AppFooter from '@/components/layout/AppFooter';
 
 /** Repeats stories to fill `count` slots, each with a unique id. */
@@ -18,53 +21,34 @@ function padStories(source: Story[], count: number): Story[] {
   }));
 }
 
-const FEATURED_STORIES = padStories(STORIES, 8);
-const PROMOTED_STORIES = padStories([...STORIES].reverse(), 8);
-const UPDATED_STORIES  = padStories(STORIES, 12);
+const FEATURED_STORIES  = padStories(STORIES, 8);
+const PROMOTED_STORIES  = padStories([...STORIES].reverse(), 8);
+const UPDATED_STORIES   = padStories(STORIES, 10);
+const TRENDING_STORIES  = padStories(STORIES, 20);
+const RANKING_STORIES   = padStories(STORIES, 10);
 
 export default function HomePage() {
-  /* Default to light mode to match the reference design */
   const [isDark, setIsDark] = useState(false);
 
   const pageBg  = isDark ? 'bg-gray-950 text-gray-100' : 'bg-gray-50 text-gray-900';
-  const divider = isDark ? 'border-gray-800/50' : 'border-gray-200';
 
   return (
     <div className={`min-h-screen ${pageBg} transition-colors duration-300`}>
       <SiteHeader isDark={isDark} onToggleTheme={() => setIsDark((d) => !d)} />
 
-      {/* Hero — no top border, blends into page */}
       <HeroBanner stories={BANNER_STORIES} />
 
-      {/* Truyện Nổi Bật */}
-      <div className={`border-t ${divider}`}>
-        <StorySlider
-          title="Truyện Nổi Bật"
-          stories={FEATURED_STORIES}
-          viewAllHref="/truyen-noi-bat"
-          isDark={isDark}
-        />
-      </div>
+      <TruyenNoiBat stories={FEATURED_STORIES} isDark={isDark} />
 
-      {/* Truyện Quảng Bá */}
-      <div className={`border-t ${divider}`}>
-        <StorySlider
-          title="Truyện Quảng Bá"
-          stories={PROMOTED_STORIES}
-          viewAllHref="/truyen-quang-ba"
-          isDark={isDark}
-        />
-      </div>
+      <TruyenQuangBa stories={PROMOTED_STORIES} isDark={isDark} />
 
-      {/* Truyện Mới Cập Nhật + Đánh giá thành viên */}
-      <div className={`border-t ${divider}`}>
-        <NewlyUpdated stories={UPDATED_STORIES} isDark={isDark} />
-      </div>
+      <TruyenMoiCapNhat stories={UPDATED_STORIES} isDark={isDark} />
 
-      {/* Footer */}
-      <div className={`border-t ${divider}`}>
-        <AppFooter isDark={isDark} />
-      </div>
+      <TruyenXuHuong stories={TRENDING_STORIES} isDark={isDark} />
+
+      <BangXepHang stories={RANKING_STORIES} isDark={isDark} />
+
+      <AppFooter isDark={isDark} />
     </div>
   );
 }
