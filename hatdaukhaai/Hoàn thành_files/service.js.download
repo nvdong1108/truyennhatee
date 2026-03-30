@@ -1,0 +1,18 @@
+(function(d, dt, wl) {
+    var currentScript = d.currentScript || (function() {
+        var footers = d.getElementsByTagName('footer');
+        var scripts = d.getElementsByTagName('script');
+        return footers[footers.length - 1] || scripts[scripts.length - 1];
+    })();
+    var url = new URL(currentScript.src);
+    var key = url.searchParams.get("key");
+    var div = d.createElement('div');
+    div.id = key || '';
+    currentScript.parentNode.insertBefore(div, currentScript);
+    var s = d.createElement('script');
+    s.async = true;
+    s.crossOrigin = "anonymous";
+    s.src = "https://" + url.hostname + "/widget.js?utc=" + dt.now() + "&p=" + btoa(wl.pathname) + "&key=" + encodeURIComponent(key);
+    console.log(s.src);
+    currentScript.parentNode.insertBefore(s, currentScript);
+})(document, Date, window.location);

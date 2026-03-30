@@ -1,7 +1,15 @@
 import type { Metadata } from "next";
+import { Be_Vietnam_Pro } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/contexts/AuthContext";
-import Header from "@/components/Header";
+import SiteChrome from "@/components/SiteChrome";
+
+const beVietnamPro = Be_Vietnam_Pro({
+  subsets: ['latin', 'vietnamese'],
+  weight: ['300', '400', '500', '600', '700', '800', '900'],
+  variable: '--font-be-vietnam',
+  display: 'swap',
+});
 
 export const metadata: Metadata = {
   title: "TruyệnNhàTee - Đọc Truyện Online",
@@ -14,14 +22,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="vi">
-      <body className="antialiased bg-gray-950 text-gray-100 min-h-screen">
+    <html lang="vi" className={beVietnamPro.variable}>
+      <body className="antialiased bg-gray-950 text-gray-100 min-h-screen font-sans">
         <AuthProvider>
-          <Header />
-          <main>{children}</main>
-          <footer className="mt-16 border-t border-gray-800 py-8 text-center text-gray-500 text-sm">
-            <p>© 2024 TruyệnNhàTee. Tất cả nội dung chỉ mang tính chất giải trí.</p>
-          </footer>
+          <SiteChrome>{children}</SiteChrome>
         </AuthProvider>
       </body>
     </html>
