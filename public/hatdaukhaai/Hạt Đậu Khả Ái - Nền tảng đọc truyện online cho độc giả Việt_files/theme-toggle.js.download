@@ -1,0 +1,183 @@
+(() => {
+  "use strict";
+
+  const STORAGE_KEY = "hdkTheme";
+  const LEGACY_KEYS = ["darkMode", "themeMode"];
+
+  const CLASS_DARK_MODE = "dark-mode";
+  const CLASS_DARK = "dark";
+
+  const ICON_LIGHT = "line-md:moon-twotone";
+  const ICON_DARK = "ix:light-dark";
+  const ROTATE_CLASS = "is-rotating";
+  const FADE_CLASS = "is-fading";
+
+  function safeLocalStorageGet(key) {
+    try {
+      return localStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  }
+
+  function safeLocalStorageSet(key, value) {
+    try {
+      localStorage.setItem(key, value);
+    } catch {
+      // ignore
+    }
+  }
+
+  function safeLocalStorageRemove(key) {
+    try {
+      localStorage.removeItem(key);
+    } catch {
+      // ignore
+    }
+  }
+
+  function setThemeCookie(theme) {
+    try {
+      let cookie = `${STORAGE_KEY}=${encodeURIComponent(theme)}; path=/; max-age=31536000; samesite=lax`;
+      if (window.location && window.location.protocol === "https:") {
+        cookie += "; secure";
+      }
+      document.cookie = cookie;
+    } catch {
+      // ignore
+    }
+  }
+
+  function isDarkActive() {
+    const html = document.documentElement;
+    return (
+      html.classList.contains(CLASS_DARK_MODE) ||
+      html.classList.contains(CLASS_DARK)
+    );
+  }
+
+  function applyDarkClasses(isDark) {
+    const html = document.documentElement;
+    html.classList.toggle(CLASS_DARK_MODE, isDark);
+    html.classList.toggle(CLASS_DARK, isDark);
+    html.style.colorScheme = isDark ? "dark" : "light";
+  }
+
+  function setAriaPressed(isDark) {
+    document.querySelectorAll(".hd-toggle-dark-mode").forEach((btn) => {
+      btn.setAttribute("aria-pressed", isDark ? "true" : "false");
+    });
+  }
+
+  function updateIcons(isDark, animate = false) {
+    document.querySelectorAll(".hd-toggle-dark-mode").forEach((btn) => {
+      const icon = btn.querySelector("iconify-icon");
+      if (!icon) return;
+
+      const target = isDark ? ICON_DARK : ICON_LIGHT;
+      if (!animate) {
+        if (icon.getAttribute("icon") !== target) {
+          icon.setAttribute("icon", target);
+        }
+        return;
+      }
+
+      btn.classList.add(ROTATE_CLASS);
+      icon.classList.add(FADE_CLASS);
+
+      window.setTimeout(() => {
+        icon.setAttribute("icon", target);
+        icon.classList.remove(FADE_CLASS);
+      }, 120);
+
+      window.setTimeout(() => {
+        btn.classList.remove(ROTATE_CLASS);
+      }, 280);
+    });
+  }
+
+  async function persistThemeToDb(theme) {
+    try {
+      if (!window.hdkUserLoggedIn) return;
+      if (!window.hdkAjaxUrl) return;
+
+      const url = `${window.hdkAjaxUrl}save-theme.php`;
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+        },
+        credentials: "same-origin",
+        body: new URLSearchParams({ theme }).toString(),
+      });
+
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data || data.status !== "success") {
+        const message = (data && data.message) || "Không thể lưu theme vào tài khoản";
+        if (typeof FuiToast !== "undefined") {
+          FuiToast.error(message);
+        } else {
+          console.warn("[Theme] save-theme failed:", message, data);
+        }
+      }
+    } catch (err) {
+      console.warn("[Theme] save-theme error:", err);
+    }
+  }
+
+  function setTheme(theme, options = {}) {
+    const nextTheme = theme === "dark" ? "dark" : "light";
+    const nextIsDark = nextTheme === "dark";
+    const shouldPersist = options.persist !== false;
+    const shouldToast = options.toast !== false;
+    const shouldAnimate = options.animate !== false;
+
+    safeLocalStorageSet(STORAGE_KEY, nextTheme);
+    setThemeCookie(nextTheme);
+    LEGACY_KEYS.forEach(safeLocalStorageRemove);
+
+    applyDarkClasses(nextIsDark);
+    setAriaPressed(nextIsDark);
+    updateIcons(nextIsDark, shouldAnimate);
+    if (shouldPersist) {
+      void persistThemeToDb(nextTheme);
+    }
+
+  }
+
+  function toggleTheme() {
+    const next = isDarkActive() ? "light" : "dark";
+    setTheme(next, { animate: true });
+  }
+
+  function init() {
+    // Optional: if server provides a theme value (logged-in), sync it once
+    const serverTheme = window.hdkServerTheme;
+    if (serverTheme === "dark" || serverTheme === "light") {
+      const current = safeLocalStorageGet(STORAGE_KEY);
+      if (current !== serverTheme) {
+        setTheme(serverTheme, { persist: false, toast: false, animate: false });
+      }
+    }
+
+    // Sync alias class `dark` with current state from global-settings.js
+    const dark = isDarkActive();
+    applyDarkClasses(dark);
+    setAriaPressed(dark);
+    updateIcons(dark, false);
+
+    // Bind both desktop + mobile buttons (same class)
+    document.querySelectorAll(".hd-toggle-dark-mode").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.preventDefault();
+        toggleTheme();
+      });
+    });
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init);
+  } else {
+    init();
+  }
+})();

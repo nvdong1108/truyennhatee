@@ -23,7 +23,7 @@ export default function UnlockModal({ storyId, storyTitle, onClose, onSuccess }:
   const handleUnlock = async () => {
     setIsProcessing(true);
     setError('');
-    const result = unlockStory(storyId);
+    const result = await unlockStory(storyId);
     if (result.success) {
       onSuccess();
     } else {

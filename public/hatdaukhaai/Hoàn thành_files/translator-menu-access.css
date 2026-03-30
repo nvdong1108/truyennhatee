@@ -1,0 +1,125 @@
+.hd-auth-buttons {
+    flex-wrap: wrap;
+}
+
+.hd-dropdown-item--translator,
+.hd-login-btn--translator,
+.hdmobile-dropdown-item--translator {
+    position: relative;
+    overflow: hidden;
+}
+
+.hd-dropdown-item--translator,
+.hdmobile-dropdown-item--translator {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.hd-login-btn--translator {
+    appearance: none;
+    justify-content: center;
+    background: rgba(84, 207, 214, 0.12);
+    color: var(--secondary-color, #54cfd6);
+    border: 1px solid rgba(84, 207, 214, 0.24);
+}
+
+.hd-login-btn--translator:hover {
+    color: #fff;
+    background: linear-gradient(135deg, #54cfd6 0%, #3a9ea5 100%);
+    border-color: transparent;
+}
+
+.hd-translator-menu-label {
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.hd-translator-free-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: auto;
+    padding: 0.2rem 0.65rem;
+    border-radius: 999px;
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    color: #fff;
+    font-size: 0.65rem;
+    font-weight: 700;
+    line-height: 1;
+    letter-spacing: 0.01em;
+    text-transform: none;
+    position: relative;
+    overflow: hidden;
+    box-shadow: 0 4px 12px rgba(16, 185, 129, 0.22);
+    flex-shrink: 0;
+}
+
+.hd-translator-free-badge::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: -120%;
+    width: 55%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.45), transparent);
+    animation: hdkTranslatorBadgeShine 2.6s ease-in-out infinite;
+}
+
+.hd-dropdown-item--translator:hover .hd-translator-free-badge,
+.hd-login-btn--translator:hover .hd-translator-free-badge {
+    background: linear-gradient(135deg, #0ea271 0%, #047857 100%);
+}
+
+.hdmobile-dropdown-item--translator {
+    min-width: 0;
+}
+
+.hdmobile-dropdown-item--translator .hdmobile-badge-shine {
+    flex-shrink: 0;
+    font-size: 0.6rem;
+    padding: 0.2rem 0.55rem;
+    text-transform: none;
+    letter-spacing: 0.01em;
+    flex: none;
+}
+
+.hdmobile-dropdown-item--translator span:first-of-type {
+    min-width: 0;
+}
+
+html.dark .hd-login-btn--translator {
+    background: rgba(84, 207, 214, 0.14);
+    color: #e7e9ea;
+    border-color: rgba(84, 207, 214, 0.25);
+}
+
+html.dark .hd-dropdown-item--translator:hover {
+    background: rgba(84, 207, 214, 0.1);
+}
+
+@keyframes hdkTranslatorBadgeShine {
+    0% {
+        left: -120%;
+    }
+
+    45%,
+    100% {
+        left: 150%;
+    }
+}
+
+@media (max-width: 991.98px) {
+    .hd-auth-buttons {
+        width: 100%;
+    }
+}
+
+@media (max-width: 575.98px) {
+    .hd-translator-free-badge {
+        padding: 0.18rem 0.5rem;
+        font-size: 0.58rem;
+    }
+}

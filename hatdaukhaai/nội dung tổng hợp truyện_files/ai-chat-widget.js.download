@@ -1,0 +1,3669 @@
+/**
+ * HatDauKhaAi - AI Chat Widget (UI + AJAX)
+ * - Open/close panel
+ * - Send message to backend
+ * - Append message bubbles (PHP renders assistant HTML)
+ *
+ * Note: Backend endpoint: sources/ajax/hatdaukhaai/ai-chat-send.php
+ */
+
+(function () {
+  "use strict";
+
+  function qs(root, selector) {
+    return (root || document).querySelector(selector);
+  }
+
+  function escapeHtml(str) {
+    return String(str)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
+  function logWidgetBootstrapError(scope, error) {
+    if (typeof console === "undefined" || typeof console.error !== "function") {
+      return;
+    }
+    console.error("[HDK][AI Widget] " + String(scope || "bootstrap error"), error);
+  }
+
+  function normalizeDebugFlag(value) {
+    const normalized = String(value == null ? "" : value).trim().toLowerCase();
+    if (!normalized) return false;
+    return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on" || normalized === "debug";
+  }
+
+  function buildShortErrorMessage(error) {
+    if (!error) return "";
+    if (typeof error === "string") {
+      return error.slice(0, 600);
+    }
+    if (error && error.message) {
+      return String(error.message).slice(0, 600);
+    }
+    try {
+      return JSON.stringify(error).slice(0, 600);
+    } catch (e) {
+      return String(error).slice(0, 600);
+    }
+  }
+
+  function createDebugRequestId(prefix) {
+    const head = String(prefix || "pwa").replace(/[^a-z0-9_-]/gi, "").slice(0, 18) || "pwa";
+    const rand = Math.random().toString(36).slice(2, 10);
+    return head + "-" + Date.now().toString(36) + "-" + rand;
+  }
+
+  function renderTextWithBold(text) {
+    const s = String(text || "");
+    if (!s) return "";
+
+    const parts = s.split(/\*\*([\s\S]+?)\*\*/g);
+    let out = "";
+    for (let i = 0; i < parts.length; i++) {
+      const p = String(parts[i] || "");
+      if (!p) continue;
+
+      if (i % 2 === 1) {
+        out += "<strong>" + escapeHtml(p) + "</strong>";
+      } else {
+        out += escapeHtml(p);
+      }
+    }
+
+    return out.replace(/\n/g, "<br>");
+  }
+
+  const AI_CHAT_EMOJI_SETS = {
+    smileys: [
+      "\uD83D\uDE00",
+      "\uD83D\uDE03",
+      "\uD83D\uDE04",
+      "\uD83D\uDE01",
+      "\uD83D\uDE06",
+      "\uD83D\uDE02",
+      "\uD83E\uDD23",
+      "\uD83D\uDE05",
+      "\uD83D\uDE0A",
+      "\uD83D\uDE42",
+      "\uD83D\uDE09",
+      "\uD83D\uDE0D",
+      "\uD83E\uDD70",
+      "\uD83D\uDE18",
+      "\uD83D\uDE0E",
+      "\uD83E\uDD14",
+      "\uD83D\uDE34",
+      "\uD83D\uDE2E",
+      "\uD83D\uDE31",
+      "\uD83D\uDE22",
+      "\uD83D\uDE2D",
+      "\uD83D\uDE4F",
+      "\uD83D\uDC4B",
+      "\uD83D\uDC4D",
+    ],
+    hearts: [
+      "\u2764\uFE0F",
+      "\uD83D\uDC96",
+      "\uD83D\uDC97",
+      "\uD83D\uDC93",
+      "\uD83D\uDC9E",
+      "\uD83D\uDC95",
+      "\uD83D\uDC98",
+      "\uD83D\uDC9D",
+      "\uD83D\uDE3B",
+      "\uD83D\uDC8C",
+      "\uD83E\uDD70",
+      "\uD83D\uDE0D",
+      "\uD83D\uDE18",
+      "\u2728",
+    ],
+    animals: [
+      "\uD83D\uDC31",
+      "\uD83D\uDC36",
+      "\uD83D\uDC2D",
+      "\uD83D\uDC30",
+      "\uD83E\uDD8A",
+      "\uD83D\uDC3B",
+      "\uD83D\uDC3C",
+      "\uD83D\uDC28",
+      "\uD83D\uDC2F",
+      "\uD83E\uDD81",
+      "\uD83D\uDC2E",
+      "\uD83D\uDC37",
+      "\uD83D\uDC38",
+      "\uD83D\uDC35",
+      "\uD83D\uDC27",
+      "\uD83D\uDC26",
+      "\uD83D\uDC24",
+      "\uD83D\uDC3A",
+      "\uD83D\uDC19",
+      "\uD83D\uDC33",
+      "\uD83E\uDD8B",
+      "\uD83D\uDC1D",
+      "\uD83D\uDC1E",
+    ],
+    food: [
+      "\uD83C\uDF54",
+      "\uD83C\uDF5F",
+      "\uD83C\uDF55",
+      "\uD83C\uDF5C",
+      "\uD83C\uDF63",
+      "\uD83C\uDF71",
+      "\uD83C\uDF59",
+      "\uD83C\uDF70",
+      "\uD83E\uDDC1",
+      "\uD83C\uDF69",
+      "\uD83C\uDF6A",
+      "\uD83C\uDF6B",
+      "\uD83C\uDF7F",
+      "\u2615",
+      "\uD83E\uDDCB",
+      "\uD83E\uDD64",
+      "\uD83C\uDF4E",
+      "\uD83C\uDF53",
+      "\uD83C\uDF51",
+      "\uD83C\uDF49",
+    ],
+    objects: [
+      "\uD83D\uDCDA",
+      "\uD83D\uDCD6",
+      "\u2728",
+      "\uD83D\uDD25",
+      "\uD83D\uDCA1",
+      "\uD83C\uDFA7",
+      "\uD83C\uDFB5",
+      "\uD83C\uDFAC",
+      "\uD83D\uDCDD",
+      "\u2705",
+      "\u274C",
+      "\u26A1",
+      "\u23F3",
+      "\u231B",
+      "\uD83D\uDD52",
+      "\uD83D\uDCCC",
+      "\uD83D\uDD0D",
+      "\uD83E\uDDE0",
+      "\uD83C\uDF19",
+      "\u2600\uFE0F",
+      "\uD83C\uDF89",
+      "\uD83E\uDDE9",
+    ],
+  };
+
+  function getEmojiSet(category) {
+    const key = String(category || "").trim().toLowerCase();
+    return AI_CHAT_EMOJI_SETS[key] || AI_CHAT_EMOJI_SETS.smileys;
+  }
+
+  function formatTime(now) {
+    try {
+      return now.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
+    } catch (e) {
+      const h = String(now.getHours()).padStart(2, "0");
+      const m = String(now.getMinutes()).padStart(2, "0");
+      return h + ":" + m;
+    }
+  }
+
+  function scrollToBottom(messagesEl) {
+    if (!messagesEl) return;
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+
+  function createOutgoingBubbleHtml(text, avatarSrc) {
+    const time = formatTime(new Date());
+    const safe = renderTextWithBold(text);
+    const avatar =
+      avatarSrc ||
+      (window.hdkBaseUrl ? window.hdkBaseUrl + "templates/images/avatar-default.webp" : "templates/images/avatar-default.webp");
+
+    return (
+      '<div class="ai-chat-row ai-chat-row--out">' +
+      '  <div class="ai-chat-user-avatar ai-chat-user-avatar--out">' +
+      '    <img loading="lazy" decoding="async" src="' + escapeHtml(avatar) + '" alt="avatar user">' +
+      "  </div>" +
+      '  <div class="ai-chat-bubble ai-chat-bubble--out bubble-tail-out">' +
+      "    <p>" + safe + "</p>" +
+      '    <div class="ai-chat-meta">' +
+      '      <span class="ai-chat-time ai-chat-time--out">' + escapeHtml(time) + "</span>" +
+      '      <iconify-icon class="ai-chat-read" icon="solar:check-read-line-duotone"></iconify-icon>' +
+      "    </div>" +
+      "  </div>" +
+      "</div>"
+    );
+  }
+
+  function createTypingBubbleHtml(aiAvatarSrc) {
+    const avatar =
+      aiAvatarSrc ||
+      (window.hdkBaseUrl ? window.hdkBaseUrl + "templates/images/hat-dau-kha-ai-ai-assistant.webp" : "templates/images/hat-dau-kha-ai-ai-assistant.webp");
+    return (
+      '<div class="ai-chat-row ai-chat-row--in ai-chat-row--typing" data-ai-chat-typing="1">' +
+      '  <div class="ai-chat-user-avatar ai-chat-user-avatar--in">' +
+      '    <img loading="lazy" decoding="async" src="' + escapeHtml(avatar) + '" alt="avatar ai">' +
+      "  </div>" +
+      '  <div class="ai-chat-bubble ai-chat-bubble--in bubble-tail-in">' +
+      '    <div class="ai-chat-typing-bubble" aria-label="AI đang trả lời">' +
+      '      <span class="ai-chat-typing-dot"></span>' +
+      '      <span class="ai-chat-typing-dot"></span>' +
+      '      <span class="ai-chat-typing-dot"></span>' +
+      "    </div>" +
+      "  </div>" +
+      "</div>"
+    );
+  }
+
+  async function postForm(url, data) {
+    const body = new URLSearchParams();
+    Object.keys(data || {}).forEach((k) => body.append(k, String(data[k])));
+
+    const requestOptions =
+      arguments.length > 2 && arguments[2] && typeof arguments[2] === "object" ? arguments[2] : {};
+
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+        "X-Requested-With": "XMLHttpRequest",
+      },
+      body,
+      credentials: "same-origin",
+      keepalive: !!requestOptions.keepalive,
+    });
+
+    const text = await resp.text();
+    let json = null;
+    try {
+      json = JSON.parse(text);
+    } catch (e) {
+      const err = new Error("Phản hồi không hợp lệ (không phải JSON).");
+      err._raw = text;
+      err._status = resp.status;
+      throw err;
+    }
+
+    if (!resp.ok) {
+      const err = new Error(json && json.message ? json.message : "Có lỗi khi gọi AI.");
+      err._status = resp.status;
+      err._json = json;
+      throw err;
+    }
+
+    return json;
+  }
+
+  function waitMs(ms) {
+    const duration = Math.max(0, Number(ms || 0) || 0);
+    return new Promise(function (resolve) {
+      window.setTimeout(resolve, duration);
+    });
+  }
+
+  function getCookieValue(name) {
+    const key = String(name || "").trim();
+    if (!key) return "";
+    const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const match = document.cookie.match(new RegExp("(?:^|; )" + escaped + "=([^;]*)"));
+    return match ? decodeURIComponent(match[1] || "") : "";
+  }
+
+  function setCookieValue(name, value, maxAgeSec) {
+    const key = String(name || "").trim();
+    if (!key) return;
+    const val = encodeURIComponent(String(value || ""));
+    const maxAge = Math.max(0, Number(maxAgeSec || 0) || 0);
+    document.cookie = key + "=" + val + "; path=/; max-age=" + maxAge + "; SameSite=Lax";
+  }
+
+  function isMobileOrTabletDevice() {
+    const width = window.innerWidth || document.documentElement.clientWidth || 0;
+    const coarse = window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
+    return coarse || width <= 1024;
+  }
+
+  function isStandaloneMode() {
+    const hasStandaloneMedia = window.matchMedia && window.matchMedia("(display-mode: standalone)").matches;
+    const iosStandalone = typeof navigator !== "undefined" && navigator.standalone === true;
+    return !!(hasStandaloneMedia || iosStandalone);
+  }
+
+  function isIosDevice() {
+    const ua = String((navigator && navigator.userAgent) || "");
+    return /iphone|ipad|ipod/i.test(ua);
+  }
+
+  function isAndroidDevice() {
+    const ua = String((navigator && navigator.userAgent) || "");
+    return /android/i.test(ua);
+  }
+
+  function getInAppBrowserInfo() {
+    const ua = String((navigator && navigator.userAgent) || "");
+    const normalized = ua.toLowerCase();
+    const patterns = [
+      { name: "Messenger", regex: /messenger/ },
+      { name: "Facebook", regex: /fban|fbav/ },
+      { name: "Instagram", regex: /instagram/ },
+      { name: "TikTok", regex: /tiktok|musical_ly/ },
+      { name: "Zalo", regex: /zalo/ },
+    ];
+
+    for (let i = 0; i < patterns.length; i++) {
+      if (patterns[i].regex.test(normalized)) {
+        return { isInApp: true, name: patterns[i].name };
+      }
+    }
+
+    return { isInApp: false, name: "" };
+  }
+
+  function getRewardSupportContext() {
+    const inApp = getInAppBrowserInfo();
+    const standalone = isStandaloneMode();
+    const secureContext = !!window.isSecureContext;
+    const hasSW = typeof navigator !== "undefined" && "serviceWorker" in navigator;
+    const hasPushManager = typeof window !== "undefined" && "PushManager" in window;
+    const hasNotification = typeof window !== "undefined" && "Notification" in window;
+
+    if (inApp.isInApp) {
+      return {
+        code: "in_app_browser",
+        label: "Mở trong Chrome/Safari",
+        message:
+          "Bạn đang mở bằng trình duyệt nhúng của " +
+          inApp.name +
+          ". Hãy chọn Mở trong Chrome hoặc Safari để website có thể xin quyền thông báo.",
+        browserName: inApp.name,
+        isInAppBrowser: true,
+        requiresStandalone: false,
+        overlayHint: false,
+      };
+    }
+
+    if (isIosDevice() && !standalone) {
+      return {
+        code: "ios_not_standalone",
+        label: "Mở bằng app đã cài",
+        message:
+          "Trên iPhone/iPad, bạn cần thêm website ra Màn hình chính và mở bằng app đã cài để bật thông báo Push.",
+        browserName: "",
+        isInAppBrowser: false,
+        requiresStandalone: true,
+        overlayHint: false,
+      };
+    }
+
+    if (!standalone) {
+      return {
+        code: "open_installed_app",
+        label: "Mở bằng app đã cài",
+        message: "Bạn cần mở website bằng ứng dụng đã cài (PWA) để hoàn tất nhận thưởng.",
+        browserName: "",
+        isInAppBrowser: false,
+        requiresStandalone: true,
+        overlayHint: false,
+      };
+    }
+
+    if (!secureContext) {
+      return {
+        code: "insecure_context",
+        label: "Cần HTTPS",
+        message: "Trình duyệt chỉ cho phép xin quyền thông báo khi website chạy trên HTTPS an toàn.",
+        browserName: "",
+        isInAppBrowser: false,
+        requiresStandalone: false,
+        overlayHint: false,
+      };
+    }
+
+    if (!hasSW || !hasPushManager || !hasNotification) {
+      return {
+        code: "unsupported_runtime",
+        label: "Thiết bị chưa hỗ trợ",
+        message: "Thiết bị hoặc trình duyệt hiện tại chưa hỗ trợ đầy đủ Push Notification để nhận thưởng.",
+        browserName: "",
+        isInAppBrowser: false,
+        requiresStandalone: false,
+        overlayHint: false,
+      };
+    }
+
+    if (pwaRewardState.lastPromptIssueCode === "overlay_blocked") {
+      return {
+        code: "overlay_blocked",
+        label: "Đóng lớp phủ ứng dụng khác",
+        message:
+          pwaRewardState.lastPromptIssue ||
+          "Android đang chặn hộp thoại xin quyền. Hãy đóng bubble hoặc lớp phủ ứng dụng khác rồi thử lại.",
+        browserName: "",
+        isInAppBrowser: false,
+        requiresStandalone: false,
+        overlayHint: true,
+      };
+    }
+
+    return {
+      code: "ready",
+      label: "Sẵn sàng",
+      message: "Thiết bị có thể hoàn tất nhận thưởng khi bạn bật thông báo Push.",
+      browserName: "",
+      isInAppBrowser: false,
+      requiresStandalone: false,
+      overlayHint: false,
+    };
+  }
+
+  function urlBase64ToUint8Array(base64String) {
+    const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+    const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+    const rawData = window.atob(base64);
+    const outputArray = new Uint8Array(rawData.length);
+    for (let i = 0; i < rawData.length; ++i) {
+      outputArray[i] = rawData.charCodeAt(i);
+    }
+    return outputArray;
+  }
+
+  function fastHash(text) {
+    const str = String(text || "");
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      hash = (hash << 5) - hash + str.charCodeAt(i);
+      hash |= 0;
+    }
+    return Math.abs(hash).toString(16);
+  }
+
+  async function digestSha256(text) {
+    const input = String(text || "");
+    if (window.crypto && window.crypto.subtle && window.TextEncoder) {
+      const buf = await window.crypto.subtle.digest("SHA-256", new TextEncoder().encode(input));
+      return Array.from(new Uint8Array(buf))
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("");
+    }
+    return fastHash(input + "|" + Date.now());
+  }
+
+  async function resolveDeviceHash() {
+    const fromCookie = String(getCookieValue("hdk_device_hash") || "").trim().toLowerCase();
+    if (fromCookie && fromCookie.length >= 16) {
+      return fromCookie;
+    }
+
+    const timezone =
+      (window.Intl &&
+        window.Intl.DateTimeFormat &&
+        window.Intl.DateTimeFormat().resolvedOptions &&
+        window.Intl.DateTimeFormat().resolvedOptions().timeZone) ||
+      "";
+    const uaPlatform =
+      (navigator.userAgentData && navigator.userAgentData.platform) ||
+      String(navigator.platform || "");
+    const raw = [
+      String(uaPlatform || ""),
+      String(navigator.language || ""),
+      String(timezone || ""),
+      String(window.screen ? window.screen.width : 0) + "x" + String(window.screen ? window.screen.height : 0),
+      String(window.screen ? window.screen.colorDepth : 0),
+      String(navigator.maxTouchPoints || 0),
+      String(navigator.hardwareConcurrency || 0),
+      String(navigator.deviceMemory || 0),
+      String(navigator.vendor || ""),
+    ].join("|");
+    const hash = await digestSha256(raw);
+    setCookieValue("hdk_device_hash", hash, 60 * 60 * 24 * 365);
+    return hash;
+  }
+
+  function initWidget(widget) {
+    const panel = qs(widget, ".ai-chat-panel");
+    const fab = qs(widget, ".ai-chat-fab");
+    const overlay =  qs(document, ".ai-chat-widget-overlay");
+    const toolsDropdown = qs(widget, ".ai-chat-tools-dropdown");
+    const fabIconTools = qs(widget, ".ai-chat-fab-icon--tools");
+    const fabIconClose = qs(widget, ".ai-chat-fab-icon--close");
+    const closeBtn = qs(widget, ".ai-chat-icon-btn[aria-label='Close']");
+    const messagesEl = qs(widget, ".ai-chat-messages");
+    const input = qs(widget, ".ai-chat-input");
+    const sendBtn = qs(widget, ".ai-chat-send-btn");
+    const emojiToggleBtn = qs(widget, "[data-ai-chat-emoji-toggle]");
+    const emojiPicker = qs(widget, "[data-ai-chat-emoji-picker]");
+    let emojiContent = qs(widget, "[data-ai-chat-emoji-content]");
+
+    const loggedIn = widget.dataset.loggedIn === "1";
+    const currentUserId = String(widget.dataset.userId || "0").trim();
+    const loginUrl = widget.dataset.loginUrl || "";
+    const endpoint = widget.dataset.ajaxEndpoint || (window.hdkAjaxUrl ? window.hdkAjaxUrl + "ai-chat-send.php" : "");
+    const historyEndpoint = widget.dataset.historyEndpoint || (window.hdkAjaxUrl ? window.hdkAjaxUrl + "ai-chat-history.php" : "");
+    const csrf = widget.dataset.csrf || "";
+    const baseUrl = widget.dataset.baseUrl || window.hdkBaseUrl || "";
+    const pwaPushEnabled = widget.dataset.pwaPushEnabled === "1";
+    const pwaPushActionsEndpoint = widget.dataset.pwaPushActionsEndpoint || "";
+    const pwaPushToggleBtn = qs(widget, "#aiPwaPushToggle");
+    const pwaPushTestBtn = qs(widget, "#aiPwaPushTestBtn");
+    const pwaPushLabel = qs(widget, "#aiPwaPushLabel");
+    const pwaPushStatusBadge = qs(widget, "#aiPwaPushStatusBadge");
+    const pwaRewardEnabled = widget.dataset.pwaRewardEnabled === "1";
+    const pwaRewardStatusEndpoint = widget.dataset.pwaRewardStatusEndpoint || "";
+    const pwaRewardMarkSeenEndpoint = widget.dataset.pwaRewardMarkSeenEndpoint || "";
+    const pwaRewardPendingEndpoint = widget.dataset.pwaRewardPendingEndpoint || "";
+    const pwaRewardClaimEndpoint = widget.dataset.pwaRewardClaimEndpoint || "";
+    const pwaRewardDebugEndpoint = widget.dataset.pwaRewardDebugEndpoint || "";
+    const pwaRewardTrigger = qs(widget, "#aiPwaRewardTrigger");
+    const pwaRewardModal = qs(document, "#aiPwaRewardModal");
+    const pwaRewardVideo = qs(document, "#aiPwaRewardVideo");
+    const pwaRewardStatusText = qs(document, "#aiPwaRewardStatusText");
+    const pwaRewardClaimBtn = qs(document, "#aiPwaRewardClaimBtn");
+    const pwaRewardRetryBtn = qs(document, "#aiPwaRewardRetryBtn");
+    const pwaRewardPermissionGuide = qs(document, "#aiPwaRewardPermissionGuide");
+    const pwaRewardTitleEl = qs(document, ".ai-pwa-reward-modal__title");
+    const pwaRewardDescEl = qs(document, ".ai-pwa-reward-modal__subtitle");
+    const pwaRewardModalDialog = qs(document, ".ai-pwa-reward-modal__dialog");
+    const pwaRewardDebugStorageKey = "hdk_pwa_reward_debug_mode";
+
+    function readPwaRewardDebugMode() {
+      let enabled = false;
+      try {
+        const url = new URL(window.location.href);
+        const queryValue = String(url.searchParams.get("pwa_reward_debug") || "").trim().toLowerCase();
+        if (queryValue !== "") {
+          if (normalizeDebugFlag(queryValue)) {
+            window.localStorage.setItem(pwaRewardDebugStorageKey, "1");
+            enabled = true;
+          } else {
+            window.localStorage.removeItem(pwaRewardDebugStorageKey);
+            enabled = false;
+          }
+        } else {
+          enabled = window.localStorage.getItem(pwaRewardDebugStorageKey) === "1";
+        }
+      } catch (e) {
+        enabled = false;
+      }
+
+      return {
+        enabled: enabled,
+      };
+    }
+
+    const pwaRewardDebug = readPwaRewardDebugMode();
+
+    const pwaRewardState = {
+      showIcon: false,
+      claimed: false,
+      introSeen: false,
+      introSeenAt: "",
+      deviceClaimed: false,
+      hasActivePush: false,
+      hasActiveStandalonePush: false,
+      rewardStatus: "none",
+      pendingReason: "",
+      pendingCreatedAt: "",
+      resetCutoffAt: "",
+      canCompleteNow: false,
+      supportContext: null,
+      lastPromptIssue: "",
+      lastPromptIssueCode: "",
+      rewardHat: Number(widget.dataset.pwaRewardHat || 100) || 100,
+      title: widget.dataset.pwaRewardTitle || "Cài app nhận ngay 100 Hạt",
+      desc:
+        widget.dataset.pwaRewardDesc ||
+        "Cài ứng dụng Hạt Đậu Khả Ái để dùng mượt hơn và nhận ngay phần thưởng 100 Hạt.",
+      videoUrl: widget.dataset.pwaRewardVideoUrl || "",
+      videoPoster: widget.dataset.pwaRewardVideoPoster || "",
+      deviceHash: "",
+      autoPromptedThisSession: false,
+      debugRequestId: "",
+      finalBlockReason: "",
+    };
+
+    let pwaDriverShown = false;
+    let pwaMarkSeenSent = false;
+    let pwaDriverLoadingPromise = null;
+    let pwaDriverInstance = null;
+    let pwaConfettiLoadingPromise = null;
+    let pwaClaiming = false;
+    let pwaRewardAutoClaiming = false;
+    let pwaRewardVideoLoadedUrl = "";
+    let pwaPushLoading = false;
+    let pwaRewardPermissionSyncing = false;
+
+    const pwaPushState = {
+      enabled: pwaPushEnabled,
+      serverReady: false,
+      tableReady: false,
+      vapidPublicKeyPresent: false,
+      publicKey: "",
+      subscribed: false,
+      standaloneSubscribed: false,
+      permission: (typeof Notification !== "undefined" ? Notification.permission : "default"),
+      runtimeSupported: false,
+      iosStandaloneRequired: false,
+      syncingExistingSubscription: false,
+    };
+
+    function isIosStandaloneRewardRuntime() {
+      return isIosDevice() && isStandaloneMode();
+    }
+
+    function beginPwaRewardDebugRequest(prefix) {
+      if (!pwaRewardDebug.enabled) return "";
+      pwaRewardState.debugRequestId = createDebugRequestId(prefix || "reward");
+      return pwaRewardState.debugRequestId;
+    }
+
+    function getPwaRewardDebugRequestId(fallbackPrefix) {
+      if (!pwaRewardDebug.enabled) return "";
+      if (!pwaRewardState.debugRequestId) {
+        pwaRewardState.debugRequestId = createDebugRequestId(fallbackPrefix || "reward");
+      }
+      return pwaRewardState.debugRequestId;
+    }
+
+    function getPwaRewardDebugClientState(extraData) {
+      return Object.assign(
+        {
+          requestId: getPwaRewardDebugRequestId("reward"),
+          permission: typeof Notification !== "undefined" ? Notification.permission : "unsupported",
+          isStandalone: isStandaloneMode() ? 1 : 0,
+          supportContext: String((getRewardSupportContext().code || "")).trim(),
+          rewardStatus: String(pwaRewardState.rewardStatus || "none"),
+          pendingReason: String(pwaRewardState.pendingReason || ""),
+          claimed: pwaRewardState.claimed ? 1 : 0,
+          deviceClaimed: pwaRewardState.deviceClaimed ? 1 : 0,
+          showIcon: pwaRewardState.showIcon ? 1 : 0,
+          canCompleteNow: pwaRewardState.canCompleteNow ? 1 : 0,
+          hasActivePush: pwaRewardState.hasActivePush ? 1 : 0,
+          hasActiveStandalonePush: pwaRewardState.hasActiveStandalonePush ? 1 : 0,
+        },
+        extraData || {}
+      );
+    }
+
+    function getPwaRewardDebugTransportData(extraData) {
+      if (!pwaRewardDebug.enabled) {
+        return Object.assign({}, extraData || {});
+      }
+
+      const requestId = getPwaRewardDebugRequestId("reward");
+      return Object.assign(
+        {
+          pwa_reward_debug: 1,
+          debug_request_id: requestId,
+        },
+        extraData || {}
+      );
+    }
+
+    async function sendPwaRewardDebugEvent(eventName, extraData) {
+      if (!loggedIn || !pwaRewardDebug.enabled || !pwaRewardDebugEndpoint || !csrf) {
+        return false;
+      }
+
+      try {
+        const state = getPwaRewardDebugClientState(extraData || {});
+        await postForm(pwaRewardDebugEndpoint, {
+          pnvn_token: csrf,
+          pwa_reward_debug: 1,
+          debug_request_id: String(state.requestId || ""),
+          event: String(eventName || "").slice(0, 96),
+          source: String((state.source || "")).slice(0, 64),
+          decision: String((state.decision || state.pendingReason || "")).slice(0, 96),
+          message: String((state.message || "")).slice(0, 600),
+          device_hash: String(pwaRewardState.deviceHash || "").slice(0, 128),
+          source_page: String(window.location.pathname || "").slice(0, 200),
+          permission: String(state.permission || "").slice(0, 32),
+          support_context: String(state.supportContext || "").slice(0, 64),
+          reward_status: String(state.rewardStatus || "").slice(0, 32),
+          pending_reason: String(state.pendingReason || "").slice(0, 64),
+          is_standalone: state.isStandalone ? 1 : 0,
+          claimed: state.claimed ? 1 : 0,
+          device_claimed: state.deviceClaimed ? 1 : 0,
+          show_icon: state.showIcon ? 1 : 0,
+          can_complete_now: state.canCompleteNow ? 1 : 0,
+          has_active_push: state.hasActivePush ? 1 : 0,
+          has_active_standalone_push: state.hasActiveStandalonePush ? 1 : 0,
+        });
+        return true;
+      } catch (e) {
+        return false;
+      }
+    }
+
+    const userAvatar =
+      widget.dataset.userAvatar ||
+      (baseUrl ? baseUrl + "templates/images/avatar-default.webp" : "templates/images/avatar-default.webp");
+    const aiAvatar = baseUrl
+      ? baseUrl + "templates/images/hat-dau-kha-ai-ai-assistant.webp"
+      : "templates/images/hat-dau-kha-ai-ai-assistant.webp";
+
+    const dayBadgeHtml =
+      '<div class="ai-chat-day">' +
+      '  <div class="ai-chat-day-badge"><span>Hôm nay</span></div>' +
+      "</div>";
+
+    let historyLoaded = false;
+    let historyCursor = 0; // byte offset cursor
+    let historyHasMore = false;
+    let historyLoading = false;
+    let historyReqId = 0;
+
+    // Placeholder typing effect (logged-in only)
+    const prefersReducedMotion =
+      typeof window !== "undefined" &&
+      window.matchMedia &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    const placeholderHints =
+      loggedIn && !prefersReducedMotion
+        ? [
+            "Nhập tin nhắn...",
+            "Gõ /xoa để làm sạch lịch sử chat",
+            'Hỏi AI mọi thắc mắc...',
+          ]
+        : [];
+
+    let placeholderTimer = 0;
+    let placeholderIndex = 0;
+    let placeholderChar = 0;
+    let placeholderDeleting = false;
+    let placeholderRunning = false;
+
+    function stopPlaceholderTyping() {
+      placeholderRunning = false;
+      if (placeholderTimer) {
+        clearTimeout(placeholderTimer);
+        placeholderTimer = 0;
+      }
+    }
+
+    function startPlaceholderTyping() {
+      if (!input || input.disabled) return;
+      if (!placeholderHints || placeholderHints.length < 2) return;
+      if (placeholderRunning) return;
+
+      placeholderRunning = true;
+      placeholderIndex = 0;
+      placeholderDeleting = true;
+
+      const first = String(placeholderHints[0] || "");
+      placeholderChar = first.length;
+      try {
+        input.placeholder = first;
+      } catch (e) {}
+
+      placeholderTimer = window.setTimeout(stepPlaceholderTyping, 1200);
+    }
+
+    function stepPlaceholderTyping() {
+      placeholderTimer = 0;
+      if (!placeholderRunning) return;
+      if (!input || input.disabled) return stopPlaceholderTyping();
+
+      // Only animate when panel is open + input is empty
+      if (!widget.classList.contains("ai-chat-widget--open") || document.hidden) {
+        placeholderTimer = window.setTimeout(stepPlaceholderTyping, 900);
+        return;
+      }
+
+      if (String(input.value || "").trim() !== "") {
+        // Keep stable placeholder while user types
+        try {
+          input.placeholder = String(placeholderHints[0] || "");
+        } catch (e) {}
+        placeholderTimer = window.setTimeout(stepPlaceholderTyping, 900);
+        return;
+      }
+
+      const phrase = String(placeholderHints[placeholderIndex] || "");
+      if (!phrase) {
+        placeholderIndex = 0;
+        placeholderChar = 0;
+        placeholderDeleting = false;
+        placeholderTimer = window.setTimeout(stepPlaceholderTyping, 900);
+        return;
+      }
+
+      if (!placeholderDeleting) {
+        placeholderChar++;
+        const next = phrase.slice(0, Math.min(phrase.length, placeholderChar));
+        try {
+          input.placeholder = next;
+        } catch (e) {}
+
+        if (placeholderChar >= phrase.length) {
+          placeholderDeleting = true;
+          placeholderTimer = window.setTimeout(stepPlaceholderTyping, 1200);
+          return;
+        }
+
+        placeholderTimer = window.setTimeout(stepPlaceholderTyping, 45);
+        return;
+      }
+
+      placeholderChar--;
+      const next = phrase.slice(0, Math.max(0, placeholderChar));
+      try {
+        input.placeholder = next;
+      } catch (e) {}
+
+      if (placeholderChar <= 0) {
+        placeholderDeleting = false;
+        placeholderIndex = (placeholderIndex + 1) % placeholderHints.length;
+        placeholderChar = 0;
+        placeholderTimer = window.setTimeout(stepPlaceholderTyping, 350);
+        return;
+      }
+
+      placeholderTimer = window.setTimeout(stepPlaceholderTyping, 25);
+    }
+
+    // === Tools dropdown logic ===
+    let toolsOpen = false;
+
+    function openToolsDropdown() {
+      if (!toolsDropdown) return;
+      toolsOpen = true;
+      toolsDropdown.hidden = false;
+      toolsDropdown.classList.add("show");
+      widget.classList.add("ai-chat-widget--tools-open");
+      if (fab) fab.setAttribute("aria-expanded", "true");
+      if (fabIconTools) fabIconTools.style.display = "none";
+      if (fabIconClose) fabIconClose.style.display = "";
+      renderPwaPushUi();
+    }
+
+    function closeToolsDropdown() {
+      if (!toolsDropdown) return;
+      toolsOpen = false;
+      toolsDropdown.classList.remove("show");
+      widget.classList.remove("ai-chat-widget--tools-open");
+      if (fab) fab.setAttribute("aria-expanded", "false");
+      if (fabIconTools) fabIconTools.style.display = "";
+      if (fabIconClose) fabIconClose.style.display = "none";
+      // Delay hidden to allow fade-out
+      setTimeout(function () { if (!toolsOpen) toolsDropdown.hidden = true; }, 200);
+    }
+
+    function toggleToolsDropdown() {
+      if (toolsOpen) closeToolsDropdown();
+      else openToolsDropdown();
+    }
+
+    function formatNumberVi(value) {
+      const n = Number(value || 0);
+      try {
+        return n.toLocaleString("vi-VN");
+      } catch (e) {
+        return String(n);
+      }
+    }
+
+    function renderPwaRewardBadge() {
+      if (!pwaRewardTrigger) return;
+      const badge = pwaRewardTrigger.querySelector(".ai-chat-tools-badge--reward");
+      if (!badge) return;
+      badge.textContent = "+" + formatNumberVi(pwaRewardState.rewardHat) + " Hạt";
+    }
+
+    function applyPwaRewardModalContent() {
+      if (pwaRewardTitleEl) pwaRewardTitleEl.textContent = String(pwaRewardState.title || "");
+      if (pwaRewardDescEl) pwaRewardDescEl.textContent = String(pwaRewardState.desc || "");
+
+      if (pwaRewardVideo) {
+        const poster = String(pwaRewardState.videoPoster || "").trim();
+        if (poster) pwaRewardVideo.setAttribute("poster", poster);
+        else pwaRewardVideo.removeAttribute("poster");
+      }
+
+      if (pwaRewardClaimBtn) {
+        pwaRewardClaimBtn.textContent = "Nhận " + formatNumberVi(pwaRewardState.rewardHat) + " Hạt";
+      }
+      renderPwaRewardBadge();
+    }
+
+    function getPwaPermissionGuideText(permissionStatus) {
+      const status = String(permissionStatus || "").toLowerCase();
+      if (status !== "denied") return "";
+
+      const lineBreak = " " + "<br/>" + " ";
+      if (isIosDevice()) {
+        return (
+          "Bạn đã tắt quyền thông báo trên iOS." +
+          lineBreak +
+          "Mở ứng dụng Hạt Đậu Khả Ái trong Cài đặt, tìm phần Thông báo và cho phép."
+        );
+      }
+
+      return (
+        "Bạn đã tắt quyền thông báo trên thiết bị này." +
+        lineBreak +
+        "Mở phần Cài đặt trình duyệt và cho phép quyền Thông báo cho Hạt Đậu Khả Ái, sau đó nhấn 'Kiểm tra lại'."
+      );
+    }
+
+    function ensurePwaRewardVideoLoaded() {
+      if (!pwaRewardVideo) return;
+      const videoUrl = String(pwaRewardState.videoUrl || pwaRewardVideo.getAttribute("data-video-url") || "").trim();
+      const source = pwaRewardVideo.querySelector("source");
+
+      if (!videoUrl) {
+        if (source) {
+          source.remove();
+          pwaRewardVideoLoadedUrl = "";
+          try {
+            pwaRewardVideo.load();
+          } catch (e) {}
+        }
+        return;
+      }
+
+      if (pwaRewardVideoLoadedUrl === videoUrl && source && source.getAttribute("src") === videoUrl) {
+        return;
+      }
+
+      let finalSource = source;
+      if (!finalSource) {
+        finalSource = document.createElement("source");
+        pwaRewardVideo.appendChild(finalSource);
+      }
+      finalSource.setAttribute("src", videoUrl);
+      pwaRewardVideoLoadedUrl = videoUrl;
+      try {
+        pwaRewardVideo.load();
+      } catch (e) {}
+    }
+
+    function shouldShowPwaRewardTrigger() {
+      return (
+        !!loggedIn &&
+        !!pwaRewardEnabled &&
+        !!pwaRewardState.showIcon &&
+        !pwaRewardState.claimed &&
+        !pwaRewardState.deviceClaimed &&
+        isMobileOrTabletDevice()
+      );
+    }
+
+    function renderPwaRewardTrigger() {
+      if (!pwaRewardTrigger) return;
+
+      const shouldShow = shouldShowPwaRewardTrigger();
+
+      pwaRewardTrigger.hidden = !shouldShow;
+      pwaRewardTrigger.classList.toggle("d-none", !shouldShow);
+      pwaRewardTrigger.setAttribute("aria-hidden", shouldShow ? "false" : "true");
+
+      if (!shouldShow && toolsOpen) {
+        closeToolsDropdown();
+      }
+    }
+
+    function applyPwaRewardStatusPayload(data) {
+      if (!data || typeof data !== "object") return;
+      pwaRewardState.claimed = !!data.claimed;
+      pwaRewardState.introSeen = !!data.intro_seen;
+      pwaRewardState.introSeenAt = String(data.intro_seen_at || "");
+      pwaRewardState.deviceClaimed = !!data.device_claimed;
+      pwaRewardState.showIcon = !!data.show_icon && !pwaRewardState.claimed && !pwaRewardState.deviceClaimed;
+      pwaRewardState.rewardHat = Number(data.reward_hat || pwaRewardState.rewardHat || 100) || 100;
+      pwaRewardState.title = String(data.popup_title || pwaRewardState.title || "");
+      pwaRewardState.desc = String(data.popup_desc || pwaRewardState.desc || "");
+      pwaRewardState.videoUrl = String(data.video_url || pwaRewardState.videoUrl || "");
+      pwaRewardState.videoPoster = String(data.video_poster || pwaRewardState.videoPoster || "");
+      pwaRewardState.hasActivePush = !!data.has_active_push;
+      pwaRewardState.hasActiveStandalonePush = !!data.has_active_standalone_push;
+      pwaRewardState.rewardStatus = String(data.reward_status || pwaRewardState.rewardStatus || "none");
+      pwaRewardState.pendingReason = String(data.pending_reason || "");
+      pwaRewardState.pendingCreatedAt = String(data.pending_created_at || "");
+      pwaRewardState.resetCutoffAt = String(data.reset_cutoff_at || "");
+      pwaRewardState.canCompleteNow = !!data.can_complete_now;
+      pwaRewardState.supportContext =
+        data.support_context && typeof data.support_context === "object"
+          ? data.support_context
+          : getRewardSupportContext();
+      pwaRewardState.finalBlockReason = String(
+        (data.debug && data.debug.final_block_reason) || pwaRewardState.finalBlockReason || ""
+      );
+      if (data.device_hash) {
+        pwaRewardState.deviceHash = String(data.device_hash || pwaRewardState.deviceHash || "");
+      }
+      syncPwaRewardIntroGuardWithServer();
+      syncLegacyPwaRewardAutoPromptState();
+    }
+
+    function getRewardPendingReason() {
+      if (pwaRewardState.lastPromptIssueCode) {
+        return pwaRewardState.lastPromptIssueCode;
+      }
+
+      const context = getRewardSupportContext();
+      if (context.code && context.code !== "ready") {
+        return context.code;
+      }
+
+      if (typeof Notification !== "undefined") {
+        if (Notification.permission === "denied") {
+          return "permission_denied";
+        }
+        if (Notification.permission !== "granted") {
+          return "awaiting_permission";
+        }
+      }
+
+      if (!pwaPushState.standaloneSubscribed) {
+        return "awaiting_push_activation";
+      }
+
+      return "awaiting_push_activation";
+    }
+
+    function getPwaRewardAutoPromptStorageKey() {
+      const userId = currentUserId;
+      if (!userId || userId === "0") return "";
+      return "hdk_pwa_reward_auto_prompt_v2_" + userId;
+    }
+
+    function getPwaRewardIntroSeenStorageKey() {
+      if (!currentUserId || currentUserId === "0") return "";
+      return "hdk_pwa_reward_intro_seen_v2_" + currentUserId;
+    }
+
+    function readPwaRewardIntroSeenMarker() {
+      const key = getPwaRewardIntroSeenStorageKey();
+      if (!key || typeof window.localStorage === "undefined") return null;
+
+      try {
+        const raw = String(window.localStorage.getItem(key) || "").trim();
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== "object") return null;
+        return parsed;
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function writePwaRewardIntroSeenMarker(options) {
+      const key = getPwaRewardIntroSeenStorageKey();
+      if (!key || typeof window.localStorage === "undefined") return;
+
+      const opts = options || {};
+      const seenAt = String(opts.seenAt || pwaRewardState.introSeenAt || new Date().toISOString()).trim();
+      const resetCutoffAt = String(
+        opts.resetCutoffAt != null ? opts.resetCutoffAt : pwaRewardState.resetCutoffAt || ""
+      ).trim();
+
+      try {
+        window.localStorage.setItem(
+          key,
+          JSON.stringify({
+            userId: currentUserId,
+            seenAt: seenAt,
+            resetCutoffAt: resetCutoffAt,
+            source: String(opts.source || "client"),
+            at: Date.now(),
+          })
+        );
+      } catch (e) {}
+    }
+
+    function clearPwaRewardIntroSeenMarker() {
+      const key = getPwaRewardIntroSeenStorageKey();
+      if (!key || typeof window.localStorage === "undefined") return;
+      try {
+        window.localStorage.removeItem(key);
+      } catch (e) {}
+    }
+
+    function resetPwaRewardIntroRuntime() {
+      pwaDriverShown = false;
+      pwaMarkSeenSent = false;
+    }
+
+    function shouldClearPwaRewardIntroSeenMarker(marker) {
+      if (!marker || typeof marker !== "object") return true;
+
+      const markerUserId = String(marker.userId || "").trim();
+      if (!markerUserId || markerUserId !== currentUserId) return true;
+
+      const serverResetCutoffAt = String(pwaRewardState.resetCutoffAt || "").trim();
+      if (!serverResetCutoffAt) return false;
+
+      return String(marker.resetCutoffAt || "").trim() !== serverResetCutoffAt;
+    }
+
+    function hasPersistentPwaRewardIntroSeen() {
+      const marker = readPwaRewardIntroSeenMarker();
+      if (!marker) return false;
+      if (shouldClearPwaRewardIntroSeenMarker(marker)) {
+        clearPwaRewardIntroSeenMarker();
+        return false;
+      }
+      return true;
+    }
+
+    function syncPwaRewardIntroGuardWithServer() {
+      const marker = readPwaRewardIntroSeenMarker();
+      if (marker && shouldClearPwaRewardIntroSeenMarker(marker)) {
+        clearPwaRewardIntroSeenMarker();
+        resetPwaRewardIntroRuntime();
+      }
+
+      if (pwaRewardState.introSeen) {
+        writePwaRewardIntroSeenMarker({
+          seenAt: pwaRewardState.introSeenAt || (marker && marker.seenAt ? marker.seenAt : ""),
+          resetCutoffAt: pwaRewardState.resetCutoffAt || "",
+          source: "server",
+        });
+      }
+    }
+
+    function clearLegacyPwaRewardAutoPromptState() {
+      const key = getPwaRewardAutoPromptStorageKey();
+      if (!key || typeof window.localStorage === "undefined") return;
+      try {
+        window.localStorage.removeItem(key);
+      } catch (e) {}
+    }
+
+    function syncLegacyPwaRewardAutoPromptState() {
+      if (pwaRewardState.claimed || pwaRewardState.deviceClaimed) return;
+      if (!pwaRewardState.showIcon || Number(pwaRewardState.rewardHat || 0) <= 0) return;
+      clearLegacyPwaRewardAutoPromptState();
+    }
+
+    function maybeAutoOpenPwaReward() {
+      if (!shouldShowPwaRewardTrigger()) return;
+      if (!isStandaloneMode()) return;
+      if (pwaRewardState.claimed || pwaRewardState.deviceClaimed) return;
+      if (pwaRewardState.autoPromptedThisSession) return;
+
+      pwaRewardState.autoPromptedThisSession = true;
+      const requestId = beginPwaRewardDebugRequest("auto_reward");
+      void sendPwaRewardDebugEvent("auto_open_triggered", {
+        source: "auto_launch",
+        requestId: requestId,
+      });
+      openPwaRewardModal({
+        autoClaim: true,
+        source: "auto_launch",
+        requestId: requestId,
+      });
+    }
+
+    function getRewardRequestPayload(extraData) {
+      const timezone =
+        (window.Intl &&
+          window.Intl.DateTimeFormat &&
+          window.Intl.DateTimeFormat().resolvedOptions &&
+          window.Intl.DateTimeFormat().resolvedOptions().timeZone) ||
+        "";
+      const screen = (window.screen ? window.screen.width : 0) + "x" + (window.screen ? window.screen.height : 0);
+      const supportContext = getRewardSupportContext();
+      const payload = {
+        device_hash: pwaRewardState.deviceHash || "",
+        platform: String(navigator.platform || "").slice(0, 100),
+        timezone: String(timezone || "").slice(0, 120),
+        screen: String(screen || "").slice(0, 50),
+        source_page: String(window.location.pathname || "").slice(0, 200),
+        support_context: String(supportContext.code || ""),
+        pending_reason: getRewardPendingReason(),
+        is_standalone: isStandaloneMode() ? 1 : 0,
+      };
+
+      return getPwaRewardDebugTransportData(Object.assign(payload, extraData || {}));
+    }
+
+    async function ensureRewardPending(extraData) {
+      if (!loggedIn || !pwaRewardPendingEndpoint || !csrf) return null;
+      if (!pwaRewardState.deviceHash) {
+        pwaRewardState.deviceHash = await resolveDeviceHash();
+      }
+
+      void sendPwaRewardDebugEvent("prepare_pending_start", {
+        source: "ensure_pending",
+        decision: getRewardPendingReason(),
+      });
+
+      let json = null;
+      try {
+        json = await postForm(
+          pwaRewardPendingEndpoint,
+          Object.assign(
+            {
+              pnvn_token: csrf,
+            },
+            getRewardRequestPayload(extraData)
+          )
+        );
+      } catch (error) {
+        void sendPwaRewardDebugEvent("prepare_pending_error", {
+          source: "ensure_pending",
+          message: buildShortErrorMessage(error),
+          decision: getRewardPendingReason(),
+        });
+        throw error;
+      }
+
+      if (json && json.status === "success" && json.data) {
+        applyPwaRewardStatusPayload(json.data);
+        applyPwaRewardModalContent();
+        renderPwaRewardTrigger();
+        void sendPwaRewardDebugEvent("prepare_pending_success", {
+          source: "ensure_pending",
+          decision: String(
+            (json.data.debug && json.data.debug.final_block_reason) || pwaRewardState.finalBlockReason || ""
+          ),
+        });
+      }
+
+      return json;
+    }
+
+    function updatePwaRewardStatusUi() {
+      if (!pwaRewardStatusText) return;
+      try {
+
+      const supportContext = getRewardSupportContext();
+      pwaRewardState.supportContext = supportContext;
+
+      if (pwaRewardPermissionGuide) {
+        pwaRewardPermissionGuide.hidden = true;
+        pwaRewardPermissionGuide.innerHTML = "";
+      }
+      if (pwaRewardRetryBtn) {
+        pwaRewardRetryBtn.hidden = true;
+      }
+      if (pwaRewardClaimBtn) {
+        pwaRewardClaimBtn.textContent = "Bật thông báo để nhận " + formatNumberVi(pwaRewardState.rewardHat) + " Hạt";
+        pwaRewardClaimBtn.disabled = !!pwaClaiming;
+      }
+
+      if (pwaRewardState.claimed) {
+        pwaRewardStatusText.textContent = "Bạn đã nhận thưởng PWA thành công.";
+        if (pwaRewardClaimBtn) pwaRewardClaimBtn.disabled = true;
+        return;
+      }
+
+      if (pwaRewardState.deviceClaimed) {
+        pwaRewardStatusText.textContent = "Thiết bị này đã được dùng để nhận thưởng cho tài khoản khác.";
+        if (pwaRewardClaimBtn) pwaRewardClaimBtn.disabled = true;
+        return;
+      }
+
+      if (supportContext.code === "in_app_browser" || supportContext.code === "ios_not_standalone" || supportContext.code === "open_installed_app") {
+        pwaRewardStatusText.textContent = supportContext.message || "Bạn cần đổi sang môi trường hỗ trợ trước khi hoàn tất nhận thưởng.";
+        if (pwaRewardClaimBtn) {
+          pwaRewardClaimBtn.textContent = supportContext.label || "Mở bằng app đã cài";
+          pwaRewardClaimBtn.disabled = false;
+        }
+        return;
+      }
+
+      const runtime = isPwaPushRuntimeSupported();
+      if (!runtime.supported) {
+        pwaRewardStatusText.textContent = supportContext.message || "Thiết bị hoặc trình duyệt hiện tại chưa hỗ trợ Push.";
+        if (pwaRewardClaimBtn) {
+          pwaRewardClaimBtn.textContent = supportContext.label || "Chưa thể nhận thưởng";
+          pwaRewardClaimBtn.disabled = false;
+        }
+        return;
+      }
+
+      if (!pwaPushState.serverReady || !pwaPushState.tableReady || !pwaPushState.vapidPublicKeyPresent) {
+        pwaRewardStatusText.textContent = "Hệ thống thông báo đang khởi tạo. Vui lòng thử lại sau.";
+        if (pwaRewardClaimBtn) pwaRewardClaimBtn.disabled = true;
+        return;
+      }
+
+      if (pwaPushState.permission !== "granted") {
+        const iosManualPromptRequired = isIosStandaloneRewardRuntime() && pwaPushState.permission === "default";
+        if (iosManualPromptRequired) {
+          pwaRewardStatusText.textContent =
+            pwaRewardState.rewardStatus === "pending"
+              ? "Trạng thái thưởng đã được lưu. Bấm nút bên dưới để bật thông báo và hoàn tất nhận Hạt."
+              : "Trên iPhone/iPad, hãy bấm nút bên dưới để bật thông báo và nhận Hạt.";
+          if (pwaRewardClaimBtn) {
+            pwaRewardClaimBtn.disabled = !!pwaClaiming;
+            pwaRewardClaimBtn.textContent =
+              (pwaRewardState.rewardStatus === "pending" ? "Bật thông báo và hoàn tất " : "Bật thông báo và nhận ") +
+              formatNumberVi(pwaRewardState.rewardHat) +
+              " Hạt";
+          }
+          if (pwaRewardPermissionGuide) {
+            pwaRewardPermissionGuide.textContent = "iPhone/iPad chỉ hiện hộp thoại xin quyền sau khi bạn bấm nút bên dưới.";
+            pwaRewardPermissionGuide.hidden = false;
+          }
+          return;
+        }
+
+        pwaRewardStatusText.textContent =
+          pwaRewardState.rewardStatus === "pending"
+            ? "Trạng thái thưởng đã được lưu. Hãy bật thông báo để hoàn tất nhận Hạt."
+            : "Bạn cần cho phép thông báo để nhận thưởng Hạt trong PWA app.";
+
+        if (pwaPushState.permission === "denied") {
+          if (pwaRewardClaimBtn) {
+            pwaRewardClaimBtn.disabled = false;
+            pwaRewardClaimBtn.textContent = "Bật lại thông báo để hoàn tất";
+          }
+          if (pwaRewardPermissionGuide) {
+            pwaRewardPermissionGuide.innerHTML = getPwaPermissionGuideText("denied");
+            pwaRewardPermissionGuide.hidden = false;
+          }
+          if (pwaRewardRetryBtn) {
+            pwaRewardRetryBtn.hidden = false;
+          }
+        }
+
+        if (pwaRewardState.lastPromptIssueCode === "overlay_blocked") {
+          pwaRewardStatusText.textContent = supportContext.message;
+          if (pwaRewardPermissionGuide) {
+            pwaRewardPermissionGuide.textContent = supportContext.message;
+            pwaRewardPermissionGuide.hidden = false;
+          }
+          if (pwaRewardRetryBtn) {
+            pwaRewardRetryBtn.hidden = false;
+          }
+          if (pwaRewardClaimBtn) {
+            pwaRewardClaimBtn.textContent = "Đóng lớp phủ ứng dụng khác";
+            pwaRewardClaimBtn.disabled = false;
+          }
+        }
+        return;
+      }
+
+      if (!pwaPushState.standaloneSubscribed) {
+        if (isIosStandaloneRewardRuntime()) {
+          pwaRewardStatusText.textContent =
+            pwaRewardState.rewardStatus === "pending"
+              ? "Thông báo đã được cho phép. Bấm nút bên dưới để đăng ký thông báo và hoàn tất nhận Hạt."
+              : "Bấm nút bên dưới để đăng ký thông báo và nhận Hạt trên iPhone/iPad.";
+          if (pwaRewardClaimBtn) {
+            pwaRewardClaimBtn.textContent =
+              (pwaRewardState.rewardStatus === "pending" ? "Đăng ký thông báo và hoàn tất " : "Đăng ký thông báo và nhận ") +
+              formatNumberVi(pwaRewardState.rewardHat) +
+              " Hạt";
+            pwaRewardClaimBtn.disabled = pwaClaiming;
+          }
+          return;
+        }
+
+        pwaRewardStatusText.textContent =
+          pwaRewardState.rewardStatus === "pending"
+            ? "Trạng thái thưởng đã được lưu. Bật đăng ký Push để hoàn tất nhận Hạt."
+            : "Bấm nút bên dưới để hệ thống xin quyền và đăng ký Push cho thiết bị này.";
+        if (pwaRewardClaimBtn) pwaRewardClaimBtn.disabled = pwaClaiming;
+        return;
+      }
+
+      if (pwaRewardAutoClaiming) {
+        pwaRewardStatusText.textContent = "Đang xử lý nhận thưởng, vui lòng chờ...";
+        if (pwaRewardClaimBtn) pwaRewardClaimBtn.disabled = true;
+        return;
+      }
+
+      pwaRewardStatusText.textContent =
+        pwaRewardState.rewardStatus === "pending"
+          ? "Thông báo đã sẵn sàng. Nhấn hoàn tất để nhận Hạt."
+          : "Thông báo đã sẵn sàng. Bạn có thể nhận thưởng ngay.";
+      if (pwaRewardClaimBtn) {
+        pwaRewardClaimBtn.textContent =
+          pwaRewardState.rewardStatus === "pending"
+            ? "Hoàn tất nhận " + formatNumberVi(pwaRewardState.rewardHat) + " Hạt"
+            : "Nhận " + formatNumberVi(pwaRewardState.rewardHat) + " Hạt";
+        pwaRewardClaimBtn.disabled = pwaClaiming;
+      }
+      } catch (error) {
+        logWidgetBootstrapError("updatePwaRewardStatusUi failed", error);
+        pwaRewardStatusText.textContent = "Đã mở cửa sổ nhận thưởng nhưng chưa thể cập nhật trạng thái. Vui lòng thử lại.";
+        if (pwaRewardClaimBtn) {
+          pwaRewardClaimBtn.disabled = false;
+        }
+        void sendPwaRewardDebugEvent("update_status_ui_error", {
+          source: "update_status_ui",
+          message: buildShortErrorMessage(error),
+          decision: "ui_render_error",
+        });
+      }
+    }
+
+    function isPwaPushRuntimeSupported() {
+      const supportContext = getRewardSupportContext();
+      const secureContext = !!window.isSecureContext;
+      const hasSW = typeof navigator !== "undefined" && "serviceWorker" in navigator;
+      const hasPushManager = typeof window !== "undefined" && "PushManager" in window;
+      const hasNotification = typeof window !== "undefined" && "Notification" in window;
+      const iosNeedStandalone = supportContext.code === "ios_not_standalone";
+      const inAppBrowser = supportContext.code === "in_app_browser";
+      return {
+        supported: secureContext && hasSW && hasPushManager && hasNotification && !iosNeedStandalone && !inAppBrowser,
+        secureContext: secureContext,
+        iosNeedStandalone: iosNeedStandalone,
+        inAppBrowser: inAppBrowser,
+        supportContext: supportContext,
+      };
+    }
+
+    function renderPwaPushUi() {
+      const runtime = isPwaPushRuntimeSupported();
+      pwaPushState.runtimeSupported = !!runtime.supported;
+      pwaPushState.iosStandaloneRequired = !!runtime.iosNeedStandalone;
+      pwaPushState.permission = (typeof Notification !== "undefined" ? Notification.permission : "default");
+
+      if (!pwaPushToggleBtn) {
+        updatePwaRewardStatusUi();
+        return;
+      }
+
+      if (!loggedIn || !pwaPushState.enabled) {
+        pwaPushToggleBtn.hidden = true;
+        if (pwaPushTestBtn) pwaPushTestBtn.hidden = true;
+        updatePwaRewardStatusUi();
+        return;
+      }
+
+      pwaPushToggleBtn.hidden = true;
+      if (pwaPushTestBtn) pwaPushTestBtn.hidden = true;
+
+      let buttonLabel = "Bật thông báo Push";
+      let badgeLabel = "Đang tắt";
+      let disabled = false;
+
+      if (pwaPushLoading) {
+        buttonLabel = "Đang xử lý Push...";
+        badgeLabel = "Loading";
+        disabled = true;
+      } else if (!pwaPushState.runtimeSupported) {
+        buttonLabel = "Push chưa sẵn sàng";
+        badgeLabel = pwaPushState.iosStandaloneRequired ? "Mở bằng app đã cài" : "Không hỗ trợ";
+        disabled = true;
+      } else if (!pwaPushState.serverReady || !pwaPushState.tableReady || !pwaPushState.vapidPublicKeyPresent) {
+        buttonLabel = "Push server chưa sẵn sàng";
+        badgeLabel = "Admin cấu hình VAPID";
+        disabled = true;
+      } else if (pwaPushState.permission === "denied") {
+        buttonLabel = "Push đang bị chặn";
+        badgeLabel = "Hãy bật quyền thông báo";
+        disabled = true;
+      } else if (pwaPushState.subscribed) {
+        buttonLabel = "Tắt thông báo Push";
+        badgeLabel = "Đang bật";
+      } else {
+        buttonLabel = "Bật thông báo Push";
+        badgeLabel = pwaPushState.permission === "granted" ? "Sẵn sàng bật" : "Cần cấp quyền";
+      }
+
+      if (pwaPushLabel) {
+        const badgeHtml =
+          '<small class="ai-chat-tools-badge ai-chat-tools-badge--push" id="aiPwaPushStatusBadge">' +
+          escapeHtml(badgeLabel) +
+          "</small>";
+        pwaPushLabel.innerHTML = escapeHtml(buttonLabel) + badgeHtml;
+      } else if (pwaPushStatusBadge) {
+        pwaPushStatusBadge.textContent = badgeLabel;
+      }
+
+      pwaPushToggleBtn.disabled = disabled;
+      pwaPushToggleBtn.classList.toggle("is-active", pwaPushState.subscribed);
+      if (pwaPushTestBtn) {
+        pwaPushTestBtn.hidden = !(pwaPushState.subscribed && !disabled);
+      }
+      updatePwaRewardStatusUi();
+    }
+
+    function applyPwaPushStatusPayload(data) {
+      if (!data || typeof data !== "object") return;
+      pwaPushState.serverReady = !!data.server_ready;
+      pwaPushState.tableReady = !!data.subscription_table_ready;
+      pwaPushState.vapidPublicKeyPresent = !!data.vapid_public_key_present;
+      pwaPushState.publicKey = String(data.public_key || "");
+      pwaPushState.subscribed = !!data.subscribed;
+      pwaPushState.standaloneSubscribed = !!data.standalone_subscribed;
+      pwaRewardState.hasActivePush = !!data.subscribed;
+      pwaRewardState.hasActiveStandalonePush = !!data.standalone_subscribed;
+    }
+
+    async function syncExistingPwaPushSubscription(options) {
+      const opts = options || {};
+      const silentMode = !!opts.silent;
+      if (!loggedIn || !pwaPushActionsEndpoint || !csrf || !navigator.serviceWorker) return false;
+      if (pwaPushState.syncingExistingSubscription) return false;
+      if (!isStandaloneMode()) return false;
+      if (typeof Notification !== "undefined" && Notification.permission !== "granted") return false;
+
+      pwaPushState.syncingExistingSubscription = true;
+      void sendPwaRewardDebugEvent("sync_existing_subscription_start", {
+        source: String(opts.source || "push_sync"),
+      });
+      try {
+        const registration = await navigator.serviceWorker.ready;
+        const subscription = await registration.pushManager.getSubscription();
+        if (!subscription) return false;
+
+        const jsonValue = typeof subscription.toJSON === "function" ? subscription.toJSON() : {};
+        const keys = jsonValue && jsonValue.keys ? jsonValue.keys : {};
+        const result = await postForm(
+          pwaPushActionsEndpoint,
+          getPwaRewardDebugTransportData({
+            action: "push_subscribe",
+            pnvn_token: csrf,
+            endpoint: String(subscription.endpoint || ""),
+            p256dh: String(keys.p256dh || ""),
+            auth: String(keys.auth || ""),
+            content_encoding: String(
+              subscription.options && subscription.options.contentEncoding
+                ? subscription.options.contentEncoding
+                : "aes128gcm"
+            ),
+            platform: String(navigator.platform || "").slice(0, 100),
+            is_standalone: 1,
+            subscription_json: JSON.stringify(jsonValue || {}),
+          })
+        );
+
+        if (!result || result.status !== "success") {
+          throw new Error((result && result.message) || "Không thể đồng bộ lại Push trong PWA app.");
+        }
+
+        applyPwaPushStatusPayload(result.data || {});
+        pwaPushState.subscribed = true;
+        pwaPushState.standaloneSubscribed = true;
+        pwaRewardState.hasActivePush = true;
+        pwaRewardState.hasActiveStandalonePush = true;
+        if (!silentMode && window.FuiToast && typeof window.FuiToast.success === "function") {
+          window.FuiToast.success("Đã đồng bộ lại trạng thái Push trong PWA app.");
+        }
+        void sendPwaRewardDebugEvent("sync_existing_subscription_success", {
+          source: String(opts.source || "push_sync"),
+        });
+        return true;
+      } catch (err) {
+        if (!silentMode && window.FuiToast && typeof window.FuiToast.warning === "function") {
+          window.FuiToast.warning((err && err.message) || "Không thể đồng bộ lại trạng thái Push.");
+        }
+        void sendPwaRewardDebugEvent("sync_existing_subscription_error", {
+          source: String(opts.source || "push_sync"),
+          message: buildShortErrorMessage(err),
+          decision: "push_sync_failed",
+        });
+        return false;
+      } finally {
+        pwaPushState.syncingExistingSubscription = false;
+      }
+    }
+
+    async function refreshPwaPushStatus(options) {
+      const opts = options || {};
+      if (!loggedIn || !pwaPushState.enabled || !pwaPushActionsEndpoint) {
+        renderPwaPushUi();
+        return;
+      }
+      void sendPwaRewardDebugEvent("refresh_push_status_start", {
+        source: String(opts.source || "push_status"),
+      });
+      try {
+        const json = await postForm(
+          pwaPushActionsEndpoint,
+          getPwaRewardDebugTransportData({
+            action: "push_status",
+          })
+        );
+
+        if (json && json.status === "success" && json.data) {
+          applyPwaPushStatusPayload(json.data);
+        }
+
+        const runtime = isPwaPushRuntimeSupported();
+        if (runtime.supported && navigator.serviceWorker) {
+          const registration = await navigator.serviceWorker.ready;
+          const existingSubscription = await registration.pushManager.getSubscription();
+          if (existingSubscription) {
+            pwaPushState.subscribed = true;
+          }
+
+          if (
+            existingSubscription &&
+            isStandaloneMode() &&
+            pwaPushState.permission === "granted" &&
+            !pwaPushState.standaloneSubscribed
+          ) {
+            await syncExistingPwaPushSubscription({ silent: true, source: String(opts.source || "push_status") });
+          }
+        }
+        void sendPwaRewardDebugEvent("refresh_push_status_ok", {
+          source: String(opts.source || "push_status"),
+          decision: pwaPushState.standaloneSubscribed ? "standalone_push_ready" : "push_status_loaded",
+        });
+      } catch (e) {
+        logWidgetBootstrapError("PWA push status bootstrap failed", e);
+        void sendPwaRewardDebugEvent("refresh_push_status_error", {
+          source: String(opts.source || "push_status"),
+          message: buildShortErrorMessage(e),
+          decision: "push_status_failed",
+        });
+      } finally {
+        renderPwaPushUi();
+      }
+    }
+
+    async function requestPushPermissionIfNeeded() {
+      if (typeof Notification === "undefined") {
+        pwaRewardState.lastPromptIssueCode = "unsupported_runtime";
+        pwaRewardState.lastPromptIssue = "Trình duyệt không hỗ trợ Notification.";
+        throw new Error(pwaRewardState.lastPromptIssue);
+      }
+
+      let permission = Notification.permission;
+      if (permission === "default") {
+        pwaRewardState.lastPromptIssue = "";
+        pwaRewardState.lastPromptIssueCode = "";
+        try {
+          permission = await Notification.requestPermission();
+        } catch (err) {
+          permission = typeof Notification !== "undefined" ? Notification.permission : "default";
+          if (isAndroidDevice() && permission === "default") {
+            pwaRewardState.lastPromptIssueCode = "overlay_blocked";
+            pwaRewardState.lastPromptIssue =
+              "Android đang chặn hộp thoại xin quyền. Hãy đóng bubble hoặc lớp phủ ứng dụng khác rồi thử lại.";
+          } else {
+            pwaRewardState.lastPromptIssueCode = "awaiting_permission";
+            pwaRewardState.lastPromptIssue =
+              (err && err.message) || "Không thể mở hộp thoại xin quyền thông báo trên thiết bị này.";
+          }
+          pwaPushState.permission = permission;
+          throw new Error(pwaRewardState.lastPromptIssue);
+        }
+      }
+
+      pwaPushState.permission = permission;
+      if (permission !== "granted") {
+        if (permission === "denied") {
+          pwaRewardState.lastPromptIssueCode = "permission_denied";
+          pwaRewardState.lastPromptIssue = "Bạn đã từ chối quyền thông báo cho trình duyệt hoặc app.";
+        } else if (!pwaRewardState.lastPromptIssueCode) {
+          pwaRewardState.lastPromptIssueCode = "awaiting_permission";
+          pwaRewardState.lastPromptIssue = "Bạn chưa cấp quyền nhận thông báo cho trình duyệt hoặc app.";
+        }
+        throw new Error(pwaRewardState.lastPromptIssue);
+      }
+
+      pwaRewardState.lastPromptIssue = "";
+      pwaRewardState.lastPromptIssueCode = "";
+    }
+
+    async function subscribePwaPush(options) {
+      const opts = options || {};
+      const silentMode = !!opts.silent;
+      if (!pwaPushActionsEndpoint) {
+        throw new Error("Thiếu endpoint Push PWA.");
+      }
+      const runtime = isPwaPushRuntimeSupported();
+      if (!runtime.supported) {
+        if (runtime.iosNeedStandalone) {
+          throw new Error("Trên iOS, bạn cần mở website bằng app đã cài (standalone) để bật Push.");
+        }
+        if (runtime.inAppBrowser) {
+          throw new Error("Trình duyệt nhúng hiện tại không hỗ trợ bật Push ổn định. Hãy mở trong Chrome hoặc Safari.");
+        }
+        throw new Error("Thiết bị hoặc trình duyệt hiện tại chưa hỗ trợ Push.");
+      }
+
+      await requestPushPermissionIfNeeded();
+      await refreshPwaPushStatus();
+      if (!pwaPushState.publicKey) {
+        throw new Error("Thiếu VAPID public key từ server.");
+      }
+
+      const registration = await navigator.serviceWorker.ready;
+      let subscription = await registration.pushManager.getSubscription();
+      if (!subscription) {
+        subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(pwaPushState.publicKey),
+        });
+      }
+
+      const jsonValue = (typeof subscription.toJSON === "function") ? subscription.toJSON() : {};
+      const keys = (jsonValue && jsonValue.keys) ? jsonValue.keys : {};
+
+      const result = await postForm(
+        pwaPushActionsEndpoint,
+        getPwaRewardDebugTransportData({
+          action: "push_subscribe",
+          pnvn_token: csrf,
+          endpoint: String(subscription.endpoint || ""),
+          p256dh: String(keys.p256dh || ""),
+          auth: String(keys.auth || ""),
+          content_encoding: String(subscription.options && subscription.options.contentEncoding ? subscription.options.contentEncoding : "aes128gcm"),
+          platform: String(navigator.platform || "").slice(0, 100),
+          is_standalone: isStandaloneMode() ? 1 : 0,
+          subscription_json: JSON.stringify(jsonValue || {}),
+        })
+      );
+
+      if (!result || result.status !== "success") {
+        pwaRewardState.lastPromptIssueCode = "push_subscribe_failed";
+        pwaRewardState.lastPromptIssue = (result && result.message) || "Không thể đăng ký push.";
+        throw new Error((result && result.message) || "Không thể đăng ký push.");
+      }
+
+      pwaRewardState.lastPromptIssue = "";
+      pwaRewardState.lastPromptIssueCode = "";
+      applyPwaPushStatusPayload(result.data || {});
+      pwaPushState.subscribed = true;
+      pwaPushState.standaloneSubscribed = isStandaloneMode();
+      pwaRewardState.hasActivePush = true;
+      pwaRewardState.hasActiveStandalonePush = pwaPushState.standaloneSubscribed;
+      if (!silentMode && window.FuiToast && typeof window.FuiToast.success === "function") {
+        window.FuiToast.success("Đã bật thông báo Push thành công.");
+      }
+    }
+
+    async function unsubscribePwaPush() {
+      if (!pwaPushActionsEndpoint) {
+        throw new Error("Thiếu endpoint Push PWA.");
+      }
+      if (!navigator.serviceWorker) {
+        throw new Error("Trình duyệt không hỗ trợ Service Worker.");
+      }
+
+      const registration = await navigator.serviceWorker.ready;
+      const subscription = await registration.pushManager.getSubscription();
+      const endpoint = subscription ? String(subscription.endpoint || "") : "";
+
+      if (subscription) {
+        try {
+          await subscription.unsubscribe();
+        } catch (e) {}
+      }
+
+      const result = await postForm(pwaPushActionsEndpoint, {
+        action: "push_unsubscribe",
+        pnvn_token: csrf,
+        endpoint: endpoint,
+      });
+
+      if (!result || result.status !== "success") {
+        throw new Error((result && result.message) || "Không thể hủy đăng ký push.");
+      }
+
+      pwaPushState.subscribed = false;
+      pwaPushState.standaloneSubscribed = false;
+      pwaRewardState.hasActivePush = false;
+      pwaRewardState.hasActiveStandalonePush = false;
+      if (window.FuiToast && typeof window.FuiToast.info === "function") {
+        window.FuiToast.info("Đã tắt thông báo Push.");
+      }
+    }
+
+    async function togglePwaPushSubscription() {
+      if (pwaPushLoading) return;
+      pwaPushLoading = true;
+      renderPwaPushUi();
+      try {
+        if (pwaPushState.subscribed) {
+          await unsubscribePwaPush();
+        } else {
+          await subscribePwaPush();
+        }
+      } catch (err) {
+        const msg = err && err.message ? err.message : "Không thể cập nhật trạng thái Push.";
+        if (window.FuiToast && typeof window.FuiToast.error === "function") {
+          window.FuiToast.error(msg);
+        } else {
+          alert(msg);
+        }
+      } finally {
+        pwaPushLoading = false;
+        await refreshPwaPushStatus();
+      }
+    }
+
+    async function sendPwaPushTest() {
+      if (pwaPushLoading || !pwaPushActionsEndpoint) return;
+      pwaPushLoading = true;
+      renderPwaPushUi();
+      try {
+        const result = await postForm(pwaPushActionsEndpoint, {
+          action: "push_test",
+          pnvn_token: csrf,
+        });
+        if (!result || result.status !== "success") {
+          throw new Error((result && result.message) || "Không thể gửi push test.");
+        }
+        if (window.FuiToast && typeof window.FuiToast.success === "function") {
+          window.FuiToast.success("Đã gửi push test.");
+        }
+      } catch (err) {
+        const msg = err && err.message ? err.message : "Không thể gửi push test.";
+        if (window.FuiToast && typeof window.FuiToast.error === "function") {
+          window.FuiToast.error(msg);
+        } else {
+          alert(msg);
+        }
+      } finally {
+        pwaPushLoading = false;
+        renderPwaPushUi();
+      }
+    }
+
+    async function ensurePushReadyForReward(forcePrompt, options) {
+      const opts = options || {};
+      const shouldPrompt = !!forcePrompt;
+      const runtime = isPwaPushRuntimeSupported();
+      if (!runtime.supported) {
+        if (runtime.iosNeedStandalone) {
+          throw new Error("Trên iOS, hãy mở bằng app đã cài (standalone) để bật thông báo.");
+        }
+        if (runtime.inAppBrowser) {
+          throw new Error("Trình duyệt nhúng hiện tại không hỗ trợ bật Push ổn định. Hãy mở trong Chrome hoặc Safari.");
+        }
+        throw new Error("Thiết bị/trình duyệt chưa hỗ trợ thông báo Push.");
+      }
+
+      if (isIosStandaloneRewardRuntime() && !opts.userInitiated) {
+        void sendPwaRewardDebugEvent("ios_manual_prompt_required", {
+          source: String(opts.source || "claim_reward"),
+          requestId: String(opts.requestId || getPwaRewardDebugRequestId("claim_reward") || ""),
+          decision: "manual_prompt_required",
+        });
+        throw new Error("Trên iPhone/iPad, hãy bấm nút bên dưới để bật thông báo rồi nhận Hạt.");
+      }
+
+      await refreshPwaPushStatus();
+
+      if (!pwaPushState.serverReady || !pwaPushState.tableReady || !pwaPushState.vapidPublicKeyPresent) {
+        throw new Error("Hệ thống thông báo đang khởi tạo, vui lòng thử lại sau.");
+      }
+
+      if (pwaPushState.permission !== "granted") {
+        if (shouldPrompt) {
+          await requestPushPermissionIfNeeded();
+          await refreshPwaPushStatus();
+        }
+      }
+
+      if (pwaPushState.permission !== "granted") {
+        throw new Error("Bạn cần cho phép thông báo để nhận thưởng Hạt.");
+      }
+
+      if (isStandaloneMode() && pwaPushState.subscribed && !pwaPushState.standaloneSubscribed) {
+        await syncExistingPwaPushSubscription({ silent: true });
+        await refreshPwaPushStatus();
+      }
+
+      if (!pwaPushState.subscribed || !pwaPushState.standaloneSubscribed) {
+        await subscribePwaPush({ silent: true });
+        await refreshPwaPushStatus();
+      }
+
+      if (!pwaPushState.standaloneSubscribed) {
+        throw new Error("Không thể xác minh đăng ký thông báo Push trong PWA app.");
+      }
+
+      return true;
+    }
+
+    async function syncRewardPermissionOnModalOpen() {
+      if (!loggedIn || !pwaPushState.enabled) return;
+      if (!pwaRewardModal || pwaRewardModal.hidden) return;
+      if (pwaRewardPermissionSyncing) return;
+
+      pwaRewardPermissionSyncing = true;
+      void sendPwaRewardDebugEvent("sync_permission_on_modal_open_start", {
+        source: "modal_open",
+      });
+      try {
+        pwaPushState.permission = (typeof Notification !== "undefined" ? Notification.permission : "default");
+        await refreshPwaPushStatus({ source: "modal_open" });
+        void sendPwaRewardDebugEvent("sync_permission_on_modal_open_success", {
+          source: "modal_open",
+        });
+      } catch (e) {
+        void sendPwaRewardDebugEvent("sync_permission_on_modal_open_error", {
+          source: "modal_open",
+          message: buildShortErrorMessage(e),
+          decision: "permission_sync_failed",
+        });
+        await refreshPwaPushStatus({ source: "modal_open_retry" });
+      } finally {
+        pwaRewardPermissionSyncing = false;
+        updatePwaRewardStatusUi();
+      }
+    }
+
+    async function markPwaRewardSeen(options) {
+      if (!loggedIn || !pwaRewardMarkSeenEndpoint || !csrf || pwaMarkSeenSent) return;
+      const opts = options || {};
+      const requestId = String(opts.requestId || getPwaRewardDebugRequestId("mark_seen") || "");
+      const localSeenAt = String(opts.seenAt || new Date().toISOString());
+      pwaMarkSeenSent = true;
+      if (opts.setGuard !== false) {
+        writePwaRewardIntroSeenMarker({
+          seenAt: localSeenAt,
+          resetCutoffAt: pwaRewardState.resetCutoffAt || "",
+          source: String(opts.source || "client"),
+        });
+      }
+
+      const payload = {
+        pnvn_token: csrf,
+        device_hash: pwaRewardState.deviceHash || "",
+      };
+      const maxAttempts = Math.max(1, Number(opts.retryCount || 2) || 2);
+      let lastError = null;
+
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+          const json = await postForm(pwaRewardMarkSeenEndpoint, payload, {
+            keepalive: attempt === 1,
+          });
+          if (!json || json.status !== "success") {
+            throw new Error((json && json.message) || "Không thể ghi nhận đã xem hướng dẫn.");
+          }
+
+          pwaRewardState.introSeen = true;
+          pwaRewardState.introSeenAt = String((json.data && json.data.intro_seen_at) || localSeenAt);
+          pwaRewardState.resetCutoffAt = String(
+            (json.data && json.data.reset_cutoff_at) || pwaRewardState.resetCutoffAt || ""
+          );
+          writePwaRewardIntroSeenMarker({
+            seenAt: pwaRewardState.introSeenAt,
+            resetCutoffAt: pwaRewardState.resetCutoffAt || "",
+            source: "server",
+          });
+          void sendPwaRewardDebugEvent("mark_seen_success", {
+            source: String(opts.source || "mark_seen"),
+            requestId: requestId,
+            decision: "attempt_" + attempt,
+          });
+          return json;
+        } catch (e) {
+          lastError = e;
+          if (attempt < maxAttempts) {
+            await waitMs(700);
+          }
+        }
+      }
+
+      pwaMarkSeenSent = false;
+      void sendPwaRewardDebugEvent("mark_seen_failed", {
+        source: String(opts.source || "mark_seen"),
+        requestId: requestId,
+        message: buildShortErrorMessage(lastError),
+        decision: "mark_seen_request_failed",
+      });
+      return null;
+    }
+
+    function ensureDriverJs() {
+      if (typeof window.driver !== "undefined" && window.driver.js && window.driver.js.driver) {
+        return Promise.resolve(true);
+      }
+      if (pwaDriverLoadingPromise) return pwaDriverLoadingPromise;
+
+      pwaDriverLoadingPromise = new Promise((resolve, reject) => {
+        try {
+          const cssExisted = document.querySelector("link[data-hdk-driver-pwa='1']");
+          if (!cssExisted) {
+            const css = document.createElement("link");
+            css.rel = "stylesheet";
+            css.href = "https://cdn.jsdelivr.net/npm/driver.js@1.3.1/dist/driver.css";
+            css.setAttribute("data-hdk-driver-pwa", "1");
+            document.head.appendChild(css);
+          }
+
+          const scriptExisted = document.querySelector("script[data-hdk-driver-pwa='1']");
+          if (scriptExisted) {
+            scriptExisted.addEventListener("load", () => resolve(true), { once: true });
+            scriptExisted.addEventListener("error", () => reject(new Error("Không thể tải Driver.js")), { once: true });
+            return;
+          }
+
+          const script = document.createElement("script");
+          script.src = "https://cdn.jsdelivr.net/npm/driver.js@1.3.1/dist/driver.js.iife.js";
+          script.async = true;
+          script.setAttribute("data-hdk-driver-pwa", "1");
+          script.onload = () => resolve(true);
+          script.onerror = () => reject(new Error("Không thể tải Driver.js"));
+          document.head.appendChild(script);
+        } catch (e) {
+          reject(e);
+        }
+      });
+
+      return pwaDriverLoadingPromise;
+    }
+
+    function dismissPwaRewardDriver() {
+      if (!pwaDriverInstance) return;
+      try {
+        if (typeof pwaDriverInstance.destroy === "function") {
+          pwaDriverInstance.destroy();
+        }
+      } catch (e) {}
+      pwaDriverInstance = null;
+    }
+
+    async function maybeRunPwaRewardDriver() {
+      if (!pwaRewardTrigger || pwaDriverShown) return;
+      if (!loggedIn || !pwaRewardEnabled) return;
+      if (!isMobileOrTabletDevice()) return;
+      const hasPersistentIntroSeen = hasPersistentPwaRewardIntroSeen();
+      if (pwaRewardState.claimed || !pwaRewardState.showIcon) return;
+      if (pwaRewardState.introSeen || hasPersistentIntroSeen) {
+        void sendPwaRewardDebugEvent("driver_skipped_seen", {
+          source: "driver_intro",
+          decision: pwaRewardState.introSeen ? "server_intro_seen" : "local_intro_seen",
+        });
+        return;
+      }
+
+      pwaDriverShown = true;
+      const requestId = beginPwaRewardDebugRequest("driver_intro");
+      const localSeenAt = new Date().toISOString();
+      writePwaRewardIntroSeenMarker({
+        seenAt: localSeenAt,
+        resetCutoffAt: pwaRewardState.resetCutoffAt || "",
+        source: "driver",
+      });
+      void markPwaRewardSeen({
+        setGuard: false,
+        seenAt: localSeenAt,
+        source: "driver_intro",
+        requestId: requestId,
+        retryCount: 2,
+      });
+      openToolsDropdown();
+
+      setTimeout(async function () {
+        try {
+          await ensureDriverJs();
+
+          if (typeof window.driver !== "undefined" && window.driver.js && window.driver.js.driver) {
+            const driverObj = window.driver.js.driver({
+              showProgress: false,
+              showButtons: ["close"],
+              allowClose: true,
+              overlayColor: "rgba(0, 0, 0, 0.6)",
+              popoverClass: "hdk-driver-popover",
+              onDestroyed: function () {
+                closeToolsDropdown();
+              },
+              steps: [
+                {
+                  element: "#aiPwaRewardTrigger",
+                  popover: {
+                    title: "Cài app nhận thưởng",
+                    description:
+                      "Cài ứng dụng Hạt Đậu Khả Ái để dùng mượt hơn và nhận ngay " +
+                      formatNumberVi(pwaRewardState.rewardHat) +
+                      " Hạt.",
+                    side: "top",
+                    align: "center",
+                  },
+                },
+              ],
+            });
+            pwaDriverInstance = driverObj;
+            void sendPwaRewardDebugEvent("driver_shown", {
+              source: "driver_intro",
+              requestId: requestId,
+            });
+            driverObj.drive();
+            return;
+          }
+        } catch (e) {}
+
+        pwaRewardTrigger.classList.add("ai-chat-tools-item--reward-highlight");
+        setTimeout(function () {
+          pwaRewardTrigger.classList.remove("ai-chat-tools-item--reward-highlight");
+        }, 3500);
+      }, 500);
+    }
+
+    function openPwaRewardModal(options) {
+      const opts = options || {};
+      const requestId = String(opts.requestId || beginPwaRewardDebugRequest(String(opts.source || "reward_modal")) || "");
+      if (!pwaRewardModal) {
+        void sendPwaRewardDebugEvent("open_modal_missing_dom", {
+          source: String(opts.source || "reward_modal"),
+          requestId: requestId,
+          decision: "missing_modal_dom",
+        });
+        return;
+      }
+      dismissPwaRewardDriver();
+      void sendPwaRewardDebugEvent("open_modal_start", {
+        source: String(opts.source || "reward_modal"),
+        requestId: requestId,
+      });
+      pwaRewardModal.hidden = false;
+      pwaRewardModal.setAttribute("aria-hidden", "false");
+      document.body.classList.add("ai-pwa-reward-modal-open");
+      requestAnimationFrame(function () {
+        pwaRewardModal.classList.add("show");
+      });
+      if (pwaRewardModalDialog) {
+        pwaRewardModalDialog.scrollTop = 0;
+      }
+      void sendPwaRewardDebugEvent("modal_shown", {
+        source: String(opts.source || "reward_modal"),
+        requestId: requestId,
+      });
+
+      try {
+        applyPwaRewardModalContent();
+      } catch (error) {
+        logWidgetBootstrapError("applyPwaRewardModalContent failed", error);
+        void sendPwaRewardDebugEvent("apply_modal_content_error", {
+          source: String(opts.source || "reward_modal"),
+          requestId: requestId,
+          message: buildShortErrorMessage(error),
+          decision: "modal_content_error",
+        });
+      }
+
+      try {
+        ensurePwaRewardVideoLoaded();
+      } catch (error) {
+        logWidgetBootstrapError("ensurePwaRewardVideoLoaded failed", error);
+        void sendPwaRewardDebugEvent("reward_video_load_error", {
+          source: String(opts.source || "reward_modal"),
+          requestId: requestId,
+          message: buildShortErrorMessage(error),
+          decision: "video_load_error",
+        });
+      }
+
+      try {
+        updatePwaRewardStatusUi();
+        void sendPwaRewardDebugEvent("update_status_ui_ok", {
+          source: String(opts.source || "reward_modal"),
+          requestId: requestId,
+          decision: pwaRewardState.finalBlockReason || pwaRewardState.pendingReason || "",
+        });
+      } catch (error) {
+        logWidgetBootstrapError("openPwaRewardModal update status failed", error);
+        void sendPwaRewardDebugEvent("update_status_ui_error", {
+          source: String(opts.source || "reward_modal"),
+          requestId: requestId,
+          message: buildShortErrorMessage(error),
+          decision: "ui_render_error",
+        });
+      }
+
+      refreshPwaPushStatus({ source: String(opts.source || "reward_modal") }).finally(function () {
+        updatePwaRewardStatusUi();
+      });
+
+      if (pwaRewardVideo && typeof pwaRewardVideo.play === "function") {
+        const playPromise = pwaRewardVideo.play();
+        if (playPromise && typeof playPromise.catch === "function") {
+          playPromise.catch(function () {});
+        }
+      }
+      markPwaRewardSeen();
+      const autoClaimAllowed = !!opts.autoClaim && !isIosStandaloneRewardRuntime();
+      syncRewardPermissionOnModalOpen().finally(function () {
+        if (opts.autoClaim && !autoClaimAllowed) {
+          void sendPwaRewardDebugEvent("auto_claim_skipped_ios", {
+            source: String(opts.source || "auto_launch"),
+            requestId: requestId,
+            decision: "manual_prompt_required",
+          });
+        }
+        if (autoClaimAllowed) {
+          void sendPwaRewardDebugEvent("auto_claim_attempt", {
+            source: String(opts.source || "auto_launch"),
+            requestId: requestId,
+            decision: "auto_claim_start",
+          });
+          claimPwaReward({
+            auto: true,
+            forcePrompt: true,
+            source: String(opts.source || "auto_launch"),
+            requestId: requestId,
+          });
+        }
+      });
+    }
+
+    function closePwaRewardModal() {
+      if (!pwaRewardModal || pwaRewardModal.hidden) return;
+      dismissPwaRewardDriver();
+      pwaRewardModal.classList.remove("show");
+      pwaRewardModal.setAttribute("aria-hidden", "true");
+      document.body.classList.remove("ai-pwa-reward-modal-open");
+      setTimeout(function () {
+        if (!pwaRewardModal.classList.contains("show")) {
+          pwaRewardModal.hidden = true;
+        }
+      }, 180);
+
+      if (pwaRewardVideo && typeof pwaRewardVideo.pause === "function") {
+        try {
+          pwaRewardVideo.pause();
+        } catch (e) {}
+      }
+    }
+
+    function ensurePwaConfetti() {
+      if (typeof window.confetti === "function") {
+        return Promise.resolve(true);
+      }
+      if (pwaConfettiLoadingPromise) return pwaConfettiLoadingPromise;
+
+      pwaConfettiLoadingPromise = new Promise((resolve, reject) => {
+        try {
+          const existed = document.querySelector("script[data-hdk-pwa-confetti='1']");
+          if (existed) {
+            existed.addEventListener("load", () => resolve(true), { once: true });
+            existed.addEventListener("error", () => reject(new Error("Không thể tải confetti")), { once: true });
+            return;
+          }
+          const s = document.createElement("script");
+          s.src = "https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.2/dist/confetti.browser.min.js";
+          s.async = true;
+          s.setAttribute("data-hdk-pwa-confetti", "1");
+          s.onload = () => resolve(true);
+          s.onerror = () => reject(new Error("Không thể tải confetti"));
+          document.head.appendChild(s);
+        } catch (e) {
+          reject(e);
+        }
+      });
+
+      return pwaConfettiLoadingPromise;
+    }
+
+    function firePwaRewardConfetti() {
+      if (typeof window.confetti !== "function") return;
+      const end = Date.now() + 2400;
+      const colors = ["#54cfd6", "#10b981", "#fbbf24", "#ffffff", "#3b82f6"];
+      const zIndex = 2147483647;
+
+      (function frame() {
+        window.confetti({
+          particleCount: 3,
+          angle: 60,
+          spread: 55,
+          origin: { x: 0, y: 0.72 },
+          colors: colors,
+          zIndex: zIndex,
+        });
+        window.confetti({
+          particleCount: 3,
+          angle: 120,
+          spread: 55,
+          origin: { x: 1, y: 0.72 },
+          colors: colors,
+          zIndex: zIndex,
+        });
+        if (Date.now() < end) requestAnimationFrame(frame);
+      })();
+    }
+
+    async function onPwaRewardClaimSuccess(payload) {
+      const rewardHat = Number((payload && payload.reward_hat) || pwaRewardState.rewardHat || 0);
+      const balanceAfter = Number((payload && payload.balance_after) || 0);
+
+      try {
+        await ensurePwaConfetti();
+        firePwaRewardConfetti();
+      } catch (e) {}
+
+      if (window.Swal && typeof window.Swal.fire === "function") {
+        await window.Swal.fire({
+          icon: "success",
+          title: "Nhận Hạt thành công!",
+          html:
+            '<div style="text-align:left; padding:.85rem; background: var(--hdk-card, #fff); border: 1px solid var(--hdk-border, #e5e7eb); border-radius: 14px;">' +
+            '<div style="display:flex; align-items:flex-start; justify-content:space-between; gap:.75rem;">' +
+            '<div style="font-size:1.15rem; font-weight:800; color: var(--hdk-primary, #54cfd6);">+' +
+            formatNumberVi(rewardHat) +
+            " Hạt</div>" +
+            '<div style="font-size:.82rem; color: var(--hdk-text-muted, #6b7280);">PWA Reward</div>' +
+            "</div>" +
+            '<div style="margin-top:.45rem; font-size:.92rem; color: var(--hdk-text-secondary, #4b5563);">Phần thưởng cài PWA đã được cộng vào ví của bạn.</div>' +
+            (balanceAfter > 0
+              ? '<div style="margin-top:.35rem; font-size:.88rem; color: var(--hdk-text-muted, #6b7280);">Số dư hiện tại: <strong style="color: var(--hdk-text-primary, #111827);">' +
+                formatNumberVi(balanceAfter) +
+                " Hạt</strong></div>"
+              : "") +
+            "</div>",
+          confirmButtonColor: "#54cfd6",
+          showConfirmButton: false,
+          timer: 2600,
+          timerProgressBar: true,
+          allowOutsideClick: false,
+          allowEscapeKey: false,
+        });
+      } else if (window.FuiToast && typeof window.FuiToast.success === "function") {
+        window.FuiToast.success("Nhận thưởng thành công +" + formatNumberVi(rewardHat) + " Hạt.");
+      }
+    }
+
+    async function claimPwaReward(options) {
+      const opts = options || {};
+      const isAuto = !!opts.auto;
+      const userInitiated = !!opts.userInitiated || !isAuto;
+      const shouldPrompt = !!opts.forcePrompt || userInitiated;
+      const supportContext = getRewardSupportContext();
+      const requestId = String(opts.requestId || getPwaRewardDebugRequestId(String(opts.source || "claim_reward")) || "");
+
+      if (pwaClaiming || !pwaRewardClaimEndpoint) return false;
+      if (pwaRewardState.claimed || pwaRewardState.deviceClaimed) {
+        return false;
+      }
+
+      void sendPwaRewardDebugEvent(isAuto ? "auto_claim_flow_start" : "manual_claim_flow_start", {
+        source: String(opts.source || (isAuto ? "auto_launch" : "manual")),
+        requestId: requestId,
+        decision: pwaRewardState.finalBlockReason || pwaRewardState.pendingReason || "",
+      });
+
+      try {
+        await ensureRewardPending({
+          reward_source: String(opts.source || "manual"),
+          pending_reason: getRewardPendingReason(),
+        });
+      } catch (pendingErr) {
+        void sendPwaRewardDebugEvent("prepare_pending_error", {
+          source: String(opts.source || (isAuto ? "auto_launch" : "manual")),
+          requestId: requestId,
+          message: buildShortErrorMessage(pendingErr),
+          decision: getRewardPendingReason(),
+        });
+        if (!isAuto) {
+          const pendingMessage = pendingErr && pendingErr.message ? pendingErr.message : "Không thể lưu trạng thái chờ.";
+          if (window.FuiToast && typeof window.FuiToast.warning === "function") {
+            window.FuiToast.warning(pendingMessage);
+          }
+        }
+      }
+
+      if (!isStandaloneMode() || supportContext.code === "in_app_browser" || supportContext.code === "ios_not_standalone" || supportContext.code === "open_installed_app") {
+        updatePwaRewardStatusUi();
+        if (!isAuto) {
+          const blockedMessage = supportContext.message || "Bạn cần mở bằng app đã cài hoặc trình duyệt hỗ trợ để tiếp tục.";
+          if (window.FuiToast && typeof window.FuiToast.warning === "function") {
+            window.FuiToast.warning(blockedMessage);
+          } else {
+            alert(blockedMessage);
+          }
+        }
+        void sendPwaRewardDebugEvent("claim_blocked_runtime", {
+          source: String(opts.source || (isAuto ? "auto_launch" : "manual")),
+          requestId: requestId,
+          decision: String(supportContext.code || "runtime_blocked"),
+        });
+        return false;
+      }
+
+      try {
+        await ensurePushReadyForReward(shouldPrompt, {
+          userInitiated: userInitiated,
+          source: String(opts.source || (isAuto ? "auto_launch" : "manual")),
+          requestId: requestId,
+        });
+      } catch (err) {
+        try {
+          await ensureRewardPending({
+            reward_source: String(opts.source || "manual"),
+            pending_reason: getRewardPendingReason(),
+          });
+        } catch (pendingErr) {}
+
+        updatePwaRewardStatusUi();
+        if (isAuto) {
+          void sendPwaRewardDebugEvent("auto_claim_result", {
+            source: String(opts.source || "auto_launch"),
+            requestId: requestId,
+            message: buildShortErrorMessage(err),
+            decision: getRewardPendingReason() || "push_not_ready",
+          });
+          return false;
+        }
+
+        const msg = err && err.message ? err.message : "Bạn cần bật thông báo trước khi nhận thưởng.";
+        if (window.FuiToast && typeof window.FuiToast.warning === "function") {
+          window.FuiToast.warning(msg);
+        } else {
+          alert(msg);
+        }
+        void sendPwaRewardDebugEvent("manual_claim_push_blocked", {
+          source: String(opts.source || "manual"),
+          requestId: requestId,
+          message: buildShortErrorMessage(err),
+          decision: getRewardPendingReason() || "push_not_ready",
+        });
+        return false;
+      }
+
+      pwaRewardAutoClaiming = isAuto;
+      pwaClaiming = true;
+      updatePwaRewardStatusUi();
+
+      try {
+        if (!pwaRewardState.deviceHash) {
+          pwaRewardState.deviceHash = await resolveDeviceHash();
+        }
+
+        const json = await postForm(
+          pwaRewardClaimEndpoint,
+          Object.assign(
+            {
+              pnvn_token: csrf,
+              reward_source: String(opts.source || "manual"),
+            },
+            getRewardRequestPayload({
+              reward_source: String(opts.source || "manual"),
+              pending_reason: getRewardPendingReason(),
+              is_standalone: 1,
+            })
+          )
+        );
+
+        if (!json || json.status !== "success") {
+          throw new Error((json && json.message) || "Không thể nhận thưởng lúc này.");
+        }
+
+        applyPwaRewardStatusPayload(
+          Object.assign({}, json.data || {}, {
+            claimed: true,
+            show_icon: false,
+            device_claimed: false,
+            reward_status: "claimed",
+            has_active_standalone_push: true,
+          })
+        );
+        renderPwaRewardTrigger();
+        closeToolsDropdown();
+        closePwaRewardModal();
+
+        await onPwaRewardClaimSuccess(json.data || {});
+        void sendPwaRewardDebugEvent(isAuto ? "auto_claim_result" : "claim_success", {
+          source: String(opts.source || (isAuto ? "auto_launch" : "manual")),
+          requestId: requestId,
+          decision: "claim_success",
+        });
+        return true;
+      } catch (err) {
+        void sendPwaRewardDebugEvent(isAuto ? "auto_claim_result" : "claim_error", {
+          source: String(opts.source || (isAuto ? "auto_launch" : "manual")),
+          requestId: requestId,
+          message: buildShortErrorMessage(err),
+          decision: pwaRewardState.finalBlockReason || pwaRewardState.pendingReason || "claim_failed",
+        });
+        if (!isAuto) {
+          const msg = err && err.message ? err.message : "Có lỗi khi nhận thưởng.";
+          if (window.FuiToast && typeof window.FuiToast.error === "function") {
+            window.FuiToast.error(msg);
+          } else {
+            alert(msg);
+          }
+        }
+        return false;
+      } finally {
+        pwaRewardAutoClaiming = false;
+        pwaClaiming = false;
+        updatePwaRewardStatusUi();
+      }
+    }
+
+    async function loadPwaRewardStatus() {
+      if (!pwaRewardEnabled || !loggedIn || !pwaRewardTrigger) return;
+      const requestId = beginPwaRewardDebugRequest("reward_status");
+
+      if (!isMobileOrTabletDevice()) {
+        pwaRewardState.showIcon = false;
+        renderPwaRewardTrigger();
+        return;
+      }
+
+      try {
+        pwaRewardState.deviceHash = await resolveDeviceHash();
+        void sendPwaRewardDebugEvent("load_reward_status_start", {
+          source: "status_bootstrap",
+          requestId: requestId,
+        });
+        if (!pwaRewardStatusEndpoint) {
+          pwaRewardState.showIcon = !pwaRewardTrigger.hidden && !pwaRewardTrigger.classList.contains("d-none");
+          renderPwaRewardTrigger();
+          return;
+        }
+
+        const timezone =
+          (window.Intl &&
+            window.Intl.DateTimeFormat &&
+            window.Intl.DateTimeFormat().resolvedOptions &&
+            window.Intl.DateTimeFormat().resolvedOptions().timeZone) ||
+          "";
+        const screen = (window.screen ? window.screen.width : 0) + "x" + (window.screen ? window.screen.height : 0);
+
+        const url = new URL(pwaRewardStatusEndpoint, window.location.origin);
+        const requestPayload = getRewardRequestPayload({
+          platform: String(navigator.platform || "").slice(0, 100),
+          screen: String(screen || "").slice(0, 50),
+          timezone: String(timezone || "").slice(0, 120),
+        });
+        Object.keys(requestPayload).forEach(function (key) {
+          url.searchParams.set(key, String(requestPayload[key] == null ? "" : requestPayload[key]));
+        });
+
+        const resp = await fetch(url.toString(), {
+          credentials: "same-origin",
+          headers: { "X-Requested-With": "XMLHttpRequest" },
+        });
+        const json = await resp.json();
+        if (!json || json.status !== "success" || !json.data) {
+          throw new Error("Status thưởng PWA không hợp lệ.");
+        }
+
+        applyPwaRewardStatusPayload(json.data);
+        void sendPwaRewardDebugEvent("load_reward_status_success", {
+          source: "status_bootstrap",
+          requestId: requestId,
+          decision: String(
+            (json.data.debug && json.data.debug.final_block_reason) || pwaRewardState.finalBlockReason || ""
+          ),
+        });
+      } catch (e) {
+        logWidgetBootstrapError("PWA reward status bootstrap failed", e);
+        pwaRewardState.showIcon = !pwaRewardTrigger.hidden && !pwaRewardTrigger.classList.contains("d-none");
+        void sendPwaRewardDebugEvent("load_reward_status_error", {
+          source: "status_bootstrap",
+          requestId: requestId,
+          message: buildShortErrorMessage(e),
+          decision: "status_fetch_failed",
+        });
+      }
+
+      applyPwaRewardModalContent();
+      renderPwaRewardTrigger();
+      updatePwaRewardStatusUi();
+      if (isStandaloneMode()) {
+        maybeAutoOpenPwaReward();
+        return;
+      }
+      maybeRunPwaRewardDriver();
+    }
+
+    function getRewardSupportContext() {
+      const inApp = getInAppBrowserInfo();
+      const standalone = isStandaloneMode();
+
+      if (inApp.isInApp) {
+        return {
+          code: "in_app_browser",
+          label: "Đã hiểu",
+          message:
+            "Bạn đang mở bằng trình duyệt nhúng của " +
+            inApp.name +
+            ". Hãy mở trong Safari hoặc Chrome rồi dùng app đã cài để nhận thưởng.",
+          browserName: inApp.name,
+          isInAppBrowser: true,
+          requiresStandalone: false,
+          overlayHint: false,
+        };
+      }
+
+      if (isIosDevice() && !standalone) {
+        return {
+          code: "ios_not_standalone",
+          label: "Đã hiểu",
+          message:
+            "Trên iPhone/iPad, hãy thêm website ra Màn hình chính rồi mở bằng app đã cài để nhận thưởng.",
+          browserName: "",
+          isInAppBrowser: false,
+          requiresStandalone: true,
+          overlayHint: false,
+        };
+      }
+
+      if (!standalone) {
+        return {
+          code: "open_installed_app",
+          label: "Đã hiểu",
+          message: "Bạn cần mở đúng bằng app đã cài (PWA) để nhận thưởng Hạt.",
+          browserName: "",
+          isInAppBrowser: false,
+          requiresStandalone: true,
+          overlayHint: false,
+        };
+      }
+
+      return {
+        code: "ready",
+        label: "Nhận thưởng",
+        message: "Bạn đang ở đúng PWA app. Bấm nút bên dưới để nhận Hạt ngay.",
+        browserName: "",
+        isInAppBrowser: false,
+        requiresStandalone: false,
+        overlayHint: false,
+      };
+    }
+
+    function isGuideOnlyRewardContext(context) {
+      const code = String((context && context.code) || "").trim().toLowerCase();
+      return code === "in_app_browser" || code === "ios_not_standalone" || code === "open_installed_app";
+    }
+
+    function getRewardPendingReason() {
+      const context = getRewardSupportContext();
+      return context.code && context.code !== "ready" ? context.code : "";
+    }
+
+    function updatePwaRewardStatusUi() {
+      if (!pwaRewardStatusText) return;
+
+      const supportContext = getRewardSupportContext();
+      const guideOnly = isGuideOnlyRewardContext(supportContext);
+      pwaRewardState.supportContext = supportContext;
+
+      if (pwaRewardPermissionGuide) {
+        pwaRewardPermissionGuide.hidden = true;
+        pwaRewardPermissionGuide.innerHTML = "";
+      }
+      if (pwaRewardRetryBtn) {
+        pwaRewardRetryBtn.hidden = true;
+      }
+
+      try {
+        if (pwaRewardState.claimed) {
+          pwaRewardStatusText.textContent = "Bạn đã nhận thưởng PWA thành công.";
+          if (pwaRewardClaimBtn) {
+            pwaRewardClaimBtn.textContent = "Đã nhận thưởng";
+            pwaRewardClaimBtn.disabled = true;
+          }
+          return;
+        }
+
+        if (pwaRewardState.deviceClaimed) {
+          pwaRewardStatusText.textContent = "Thiết bị này đã được dùng để nhận thưởng cho tài khoản khác.";
+          if (pwaRewardClaimBtn) {
+            pwaRewardClaimBtn.textContent = "Không thể nhận";
+            pwaRewardClaimBtn.disabled = true;
+          }
+          return;
+        }
+
+        if (guideOnly) {
+          pwaRewardStatusText.textContent =
+            supportContext.message || "Bạn cần mở đúng bằng app đã cài để tiếp tục nhận thưởng.";
+          if (pwaRewardClaimBtn) {
+            pwaRewardClaimBtn.textContent = supportContext.label || "Đã hiểu";
+            pwaRewardClaimBtn.disabled = false;
+          }
+          if (pwaRewardPermissionGuide && supportContext.code !== "in_app_browser") {
+            pwaRewardPermissionGuide.textContent =
+              "Khi mở đúng bằng app đã cài, bạn chỉ cần bấm nút để nhận Hạt ngay.";
+            pwaRewardPermissionGuide.hidden = false;
+          }
+          return;
+        }
+
+        if (pwaRewardAutoClaiming || pwaClaiming) {
+          pwaRewardStatusText.textContent = "Đang xử lý nhận thưởng, vui lòng chờ...";
+          if (pwaRewardClaimBtn) {
+            pwaRewardClaimBtn.textContent = "Đang nhận thưởng...";
+            pwaRewardClaimBtn.disabled = true;
+          }
+          return;
+        }
+
+        const readyMessage =
+          pwaRewardState.rewardStatus === "pending"
+            ? "Bạn đang có lượt thưởng chờ. Bấm nút bên dưới để hoàn tất nhận " +
+              formatNumberVi(pwaRewardState.rewardHat) +
+              " Hạt."
+            : "Bạn đang ở đúng PWA app. Bấm nút bên dưới để nhận ngay " +
+              formatNumberVi(pwaRewardState.rewardHat) +
+              " Hạt.";
+
+        pwaRewardStatusText.textContent = readyMessage;
+        if (pwaRewardClaimBtn) {
+          pwaRewardClaimBtn.textContent =
+            (pwaRewardState.rewardStatus === "pending" ? "Hoàn tất nhận " : "Nhận ") +
+            formatNumberVi(pwaRewardState.rewardHat) +
+            " Hạt";
+          pwaRewardClaimBtn.disabled = false;
+        }
+      } catch (error) {
+        logWidgetBootstrapError("updatePwaRewardStatusUi failed", error);
+        if (guideOnly) {
+          pwaRewardStatusText.textContent =
+            supportContext.message || "Bạn cần mở đúng bằng app đã cài để nhận thưởng.";
+          if (pwaRewardClaimBtn) {
+            pwaRewardClaimBtn.textContent = supportContext.label || "Đã hiểu";
+            pwaRewardClaimBtn.disabled = false;
+          }
+          return;
+        }
+
+        pwaRewardStatusText.textContent =
+          "Bạn đang ở đúng PWA app. Bấm nút bên dưới để nhận " +
+          formatNumberVi(pwaRewardState.rewardHat) +
+          " Hạt.";
+        if (pwaRewardClaimBtn) {
+          pwaRewardClaimBtn.textContent = "Nhận " + formatNumberVi(pwaRewardState.rewardHat) + " Hạt";
+          pwaRewardClaimBtn.disabled = false;
+        }
+      }
+    }
+
+    function openPwaRewardModal(options) {
+      const opts = options || {};
+      const requestId = String(opts.requestId || beginPwaRewardDebugRequest(String(opts.source || "reward_modal")) || "");
+      if (!pwaRewardModal) {
+        void sendPwaRewardDebugEvent("open_modal_missing_dom", {
+          source: String(opts.source || "reward_modal"),
+          requestId: requestId,
+          decision: "missing_modal_dom",
+        });
+        return;
+      }
+      dismissPwaRewardDriver();
+      void sendPwaRewardDebugEvent("open_modal_start", {
+        source: String(opts.source || "reward_modal"),
+        requestId: requestId,
+      });
+      pwaRewardModal.hidden = false;
+      pwaRewardModal.setAttribute("aria-hidden", "false");
+      document.body.classList.add("ai-pwa-reward-modal-open");
+      requestAnimationFrame(function () {
+        pwaRewardModal.classList.add("show");
+      });
+      if (pwaRewardModalDialog) {
+        pwaRewardModalDialog.scrollTop = 0;
+      }
+      void sendPwaRewardDebugEvent("modal_shown", {
+        source: String(opts.source || "reward_modal"),
+        requestId: requestId,
+      });
+
+      try {
+        applyPwaRewardModalContent();
+        ensurePwaRewardVideoLoaded();
+        updatePwaRewardStatusUi();
+        void sendPwaRewardDebugEvent("update_status_ui_ok", {
+          source: String(opts.source || "reward_modal"),
+          requestId: requestId,
+          decision: pwaRewardState.finalBlockReason || pwaRewardState.pendingReason || "",
+        });
+      } catch (error) {
+        logWidgetBootstrapError("openPwaRewardModal failed", error);
+        void sendPwaRewardDebugEvent("update_status_ui_error", {
+          source: String(opts.source || "reward_modal"),
+          requestId: requestId,
+          message: buildShortErrorMessage(error),
+          decision: "ui_render_error",
+        });
+        updatePwaRewardStatusUi();
+      }
+
+      if (pwaRewardVideo && typeof pwaRewardVideo.play === "function") {
+        const playPromise = pwaRewardVideo.play();
+        if (playPromise && typeof playPromise.catch === "function") {
+          playPromise.catch(function () {});
+        }
+      }
+      markPwaRewardSeen();
+    }
+
+    async function claimPwaReward(options) {
+      const opts = options || {};
+      const isAuto = !!opts.auto;
+      const requestId = String(opts.requestId || getPwaRewardDebugRequestId(String(opts.source || "claim_reward")) || "");
+      const supportContext = getRewardSupportContext();
+      const guideOnly = isGuideOnlyRewardContext(supportContext);
+
+      if (pwaClaiming || !pwaRewardClaimEndpoint) return false;
+      if (pwaRewardState.claimed || pwaRewardState.deviceClaimed) {
+        updatePwaRewardStatusUi();
+        return false;
+      }
+
+      void sendPwaRewardDebugEvent(isAuto ? "auto_claim_flow_start" : "manual_claim_flow_start", {
+        source: String(opts.source || (isAuto ? "auto_launch" : "manual")),
+        requestId: requestId,
+        decision: pwaRewardState.finalBlockReason || pwaRewardState.pendingReason || "",
+      });
+
+      if (!isStandaloneMode() || guideOnly) {
+        updatePwaRewardStatusUi();
+        void sendPwaRewardDebugEvent("claim_blocked_runtime", {
+          source: String(opts.source || (isAuto ? "auto_launch" : "manual")),
+          requestId: requestId,
+          decision: String(supportContext.code || "runtime_blocked"),
+        });
+        if (!isAuto) {
+          closePwaRewardModal();
+        }
+        return false;
+      }
+
+      pwaRewardAutoClaiming = isAuto;
+      pwaClaiming = true;
+      updatePwaRewardStatusUi();
+
+      try {
+        if (!pwaRewardState.deviceHash) {
+          pwaRewardState.deviceHash = await resolveDeviceHash();
+        }
+
+        const json = await postForm(
+          pwaRewardClaimEndpoint,
+          Object.assign(
+            {
+              pnvn_token: csrf,
+              reward_source: String(opts.source || "manual"),
+            },
+            getRewardRequestPayload({
+              reward_source: String(opts.source || "manual"),
+              pending_reason: "",
+              is_standalone: 1,
+            })
+          )
+        );
+
+        if (!json || json.status !== "success") {
+          throw new Error((json && json.message) || "Không thể nhận thưởng lúc này.");
+        }
+
+        applyPwaRewardStatusPayload(
+          Object.assign({}, json.data || {}, {
+            claimed: true,
+            show_icon: false,
+            device_claimed: false,
+            reward_status: "claimed",
+            pending_reason: "",
+            can_complete_now: false,
+          })
+        );
+        renderPwaRewardTrigger();
+        closeToolsDropdown();
+        closePwaRewardModal();
+
+        await onPwaRewardClaimSuccess(json.data || {});
+        void sendPwaRewardDebugEvent(isAuto ? "auto_claim_result" : "claim_success", {
+          source: String(opts.source || (isAuto ? "auto_launch" : "manual")),
+          requestId: requestId,
+          decision: "claim_success",
+        });
+        return true;
+      } catch (err) {
+        const msg =
+          err && err.message === "Phản hồi không hợp lệ (không phải JSON)."
+            ? "Không thể nhận thưởng lúc này. Vui lòng thử lại sau."
+            : err && err.message
+              ? err.message
+              : "Có lỗi khi nhận thưởng.";
+
+        void sendPwaRewardDebugEvent(isAuto ? "auto_claim_result" : "claim_error", {
+          source: String(opts.source || (isAuto ? "auto_launch" : "manual")),
+          requestId: requestId,
+          message: buildShortErrorMessage(err),
+          decision: pwaRewardState.finalBlockReason || pwaRewardState.pendingReason || "claim_failed",
+        });
+        if (!isAuto) {
+          if (window.FuiToast && typeof window.FuiToast.error === "function") {
+            window.FuiToast.error(msg);
+          } else {
+            alert(msg);
+          }
+        }
+        return false;
+      } finally {
+        pwaRewardAutoClaiming = false;
+        pwaClaiming = false;
+        updatePwaRewardStatusUi();
+      }
+    }
+
+    async function loadPwaRewardStatus() {
+      if (!pwaRewardEnabled || !loggedIn || !pwaRewardTrigger) return;
+      const requestId = beginPwaRewardDebugRequest("reward_status");
+
+      if (!isMobileOrTabletDevice()) {
+        pwaRewardState.showIcon = false;
+        renderPwaRewardTrigger();
+        return;
+      }
+
+      try {
+        pwaRewardState.deviceHash = await resolveDeviceHash();
+        void sendPwaRewardDebugEvent("load_reward_status_start", {
+          source: "status_bootstrap",
+          requestId: requestId,
+        });
+        if (!pwaRewardStatusEndpoint) {
+          pwaRewardState.showIcon = !pwaRewardTrigger.hidden && !pwaRewardTrigger.classList.contains("d-none");
+          renderPwaRewardTrigger();
+          return;
+        }
+
+        const timezone =
+          (window.Intl &&
+            window.Intl.DateTimeFormat &&
+            window.Intl.DateTimeFormat().resolvedOptions &&
+            window.Intl.DateTimeFormat().resolvedOptions().timeZone) ||
+          "";
+        const screen = (window.screen ? window.screen.width : 0) + "x" + (window.screen ? window.screen.height : 0);
+
+        const url = new URL(pwaRewardStatusEndpoint, window.location.origin);
+        const requestPayload = getRewardRequestPayload({
+          platform: String(navigator.platform || "").slice(0, 100),
+          screen: String(screen || "").slice(0, 50),
+          timezone: String(timezone || "").slice(0, 120),
+        });
+        Object.keys(requestPayload).forEach(function (key) {
+          url.searchParams.set(key, String(requestPayload[key] == null ? "" : requestPayload[key]));
+        });
+
+        const resp = await fetch(url.toString(), {
+          credentials: "same-origin",
+          headers: { "X-Requested-With": "XMLHttpRequest" },
+        });
+        const json = await resp.json();
+        if (!json || json.status !== "success" || !json.data) {
+          throw new Error("Status thưởng PWA không hợp lệ.");
+        }
+
+        applyPwaRewardStatusPayload(json.data);
+        void sendPwaRewardDebugEvent("load_reward_status_success", {
+          source: "status_bootstrap",
+          requestId: requestId,
+          decision: String(
+            (json.data.debug && json.data.debug.final_block_reason) || pwaRewardState.finalBlockReason || ""
+          ),
+        });
+      } catch (e) {
+        logWidgetBootstrapError("PWA reward status bootstrap failed", e);
+        pwaRewardState.showIcon = !pwaRewardTrigger.hidden && !pwaRewardTrigger.classList.contains("d-none");
+        void sendPwaRewardDebugEvent("load_reward_status_error", {
+          source: "status_bootstrap",
+          requestId: requestId,
+          message: buildShortErrorMessage(e),
+          decision: "status_fetch_failed",
+        });
+      }
+
+      applyPwaRewardModalContent();
+      renderPwaRewardTrigger();
+      updatePwaRewardStatusUi();
+      if (!isStandaloneMode()) {
+        maybeRunPwaRewardDriver();
+      }
+    }
+
+    function open() {
+      // Close tools dropdown when opening chat panel
+      closeToolsDropdown();
+
+      widget.classList.add("ai-chat-widget--open");
+      if (fab) fab.setAttribute("aria-expanded", "true");
+      if (panel) {
+        panel.removeAttribute("inert");
+        panel.setAttribute("aria-hidden", "false");
+      }
+      if (overlay) overlay.classList.add("show");
+
+      if (loggedIn && input && !input.disabled) {
+        setTimeout(() => input.focus(), 50);
+      }
+
+      startPlaceholderTyping();
+
+      // Lazy-load latest history only when panel opens
+      if (loggedIn && !historyLoaded) {
+        loadInitialHistory();
+        return;
+      }
+
+      scrollToBottom(messagesEl);
+    }
+
+    function close() {
+      toggleEmojiPicker(false);
+      stopPlaceholderTyping();
+      widget.classList.remove("ai-chat-widget--open");
+      if (fab) fab.setAttribute("aria-expanded", "false");
+      if (panel) {
+        panel.setAttribute("aria-hidden", "true");
+        panel.setAttribute("inert", "");
+      }
+      if (overlay) overlay.classList.remove("show");
+    }
+
+    function appendHtml(html) {
+      if (!messagesEl) return;
+      messagesEl.insertAdjacentHTML("beforeend", html);
+      scrollToBottom(messagesEl);
+    }
+
+    function removeTyping() {
+      if (!messagesEl) return;
+      const typing = qs(messagesEl, "[data-ai-chat-typing='1']");
+      if (typing) typing.remove();
+    }
+
+    function ensureDayBadge() {
+      if (!messagesEl) return null;
+      let dayEl = qs(messagesEl, ".ai-chat-day");
+      if (!dayEl) {
+        messagesEl.insertAdjacentHTML("afterbegin", dayBadgeHtml);
+        dayEl = qs(messagesEl, ".ai-chat-day");
+      }
+      return dayEl;
+    }
+
+    function resetMessagesToDayBadgeOnly() {
+      if (!messagesEl) return;
+      messagesEl.innerHTML = dayBadgeHtml;
+    }
+
+    async function loadInitialHistory() {
+      if (!loggedIn || historyLoaded || historyLoading) return;
+      if (!historyEndpoint) {
+        historyLoaded = true;
+        return;
+      }
+
+      historyLoading = true;
+      const reqId = ++historyReqId;
+      try {
+        resetMessagesToDayBadgeOnly();
+
+        const json = await postForm(historyEndpoint, {
+          limit: 10,
+          csrf: csrf,
+        });
+
+        if (reqId !== historyReqId) return;
+
+        if (json && json.status === "success") {
+          const html = json.html ? String(json.html) : "";
+          if (html && messagesEl) {
+            messagesEl.insertAdjacentHTML("beforeend", html);
+          }
+
+          historyCursor = Number(json.next_cursor || 0) || 0;
+          historyHasMore = !!json.has_more;
+        }
+
+        historyLoaded = true;
+        scrollToBottom(messagesEl);
+      } catch (err) {
+        if (reqId !== historyReqId) return;
+        historyLoaded = true;
+        const msg = err && err.message ? err.message : "Không thể tải lịch sử chat.";
+        appendHtml(
+          '<div class="ai-chat-row ai-chat-row--in">' +
+            '<div class="ai-chat-user-avatar ai-chat-user-avatar--in">' +
+              '<img loading="lazy" decoding="async" src="' + escapeHtml(aiAvatar) + '" alt="avatar ai">' +
+            "</div>" +
+            '<div class="ai-chat-bubble ai-chat-bubble--in bubble-tail-in">' +
+              "<p>" + escapeHtml(msg) + "</p>" +
+            "</div>" +
+          "</div>"
+        );
+      } finally {
+        historyLoading = false;
+      }
+    }
+
+    async function loadOlderHistory() {
+      if (!loggedIn || historyLoading) return;
+      if (!historyEndpoint) return;
+      if (!historyLoaded) return;
+      if (!historyHasMore) return;
+      if (!historyCursor || historyCursor <= 0) return;
+      if (!messagesEl) return;
+
+      historyLoading = true;
+      const reqId = ++historyReqId;
+      try {
+        const prevScrollHeight = messagesEl.scrollHeight;
+        const prevScrollTop = messagesEl.scrollTop;
+
+        const json = await postForm(historyEndpoint, {
+          cursor: historyCursor,
+          limit: 10,
+          csrf: csrf,
+        });
+
+        if (reqId !== historyReqId) return;
+
+        if (json && json.status === "success") {
+          const html = json.html ? String(json.html) : "";
+          if (html) {
+            const dayEl = ensureDayBadge();
+            if (dayEl) {
+              dayEl.insertAdjacentHTML("afterend", html);
+            } else {
+              messagesEl.insertAdjacentHTML("afterbegin", dayBadgeHtml + html);
+            }
+
+            const newScrollHeight = messagesEl.scrollHeight;
+            messagesEl.scrollTop = newScrollHeight - prevScrollHeight + prevScrollTop;
+          }
+
+          historyCursor = Number(json.next_cursor || 0) || 0;
+          historyHasMore = !!json.has_more;
+        }
+      } catch (err) {
+        // Ignore older-load errors (keep UX smooth)
+      } finally {
+        historyLoading = false;
+      }
+    }
+
+    function toggleEmojiPicker(forceState) {
+      if (!emojiPicker) return;
+      const shouldShow = typeof forceState === "boolean" ? forceState : !emojiPicker.classList.contains("show");
+      emojiPicker.classList.toggle("show", shouldShow);
+      if (shouldShow) {
+        const activeTab = qs(emojiPicker, ".emoji-picker-tab.active") || qs(emojiPicker, ".emoji-picker-tab");
+        const cat = activeTab ? String(activeTab.getAttribute("data-category") || "smileys") : "smileys";
+        renderEmojiCategory(cat);
+      }
+    }
+
+    function insertAtCursor(el, text) {
+      if (!el) return;
+      const value = String(el.value || "");
+      const insert = String(text || "");
+      try {
+        const start = el.selectionStart || 0;
+        const end = el.selectionEnd || 0;
+        el.value = value.slice(0, start) + insert + value.slice(end);
+        const newPos = start + insert.length;
+        el.setSelectionRange(newPos, newPos);
+      } catch (e) {
+        el.value = value + insert;
+      }
+      el.focus();
+    }
+
+    function getRelativePathFromBase(baseUrl) {
+      try {
+        const base = new URL(String(baseUrl || ""), window.location.origin);
+        const basePath = String(base.pathname || "/").replace(/\/+$/, "/");
+
+        let path = String(window.location.pathname || "/");
+        if (basePath !== "/" && path.toLowerCase().startsWith(basePath.toLowerCase())) {
+          path = path.slice(basePath.length);
+        } else {
+          path = path.replace(/^\/+/, "");
+        }
+        return path.replace(/^\/+|\/+$/g, "");
+      } catch (e) {
+        return String(window.location.pathname || "/").replace(/^\/+|\/+$/g, "");
+      }
+    }
+
+    function collectPageContext() {
+      const ctx = {
+        page: typeof window.currentPage !== "undefined" ? String(window.currentPage || "") : "",
+        page_url: window.location.href,
+        story_alias: "",
+        chapter_num: 0,
+        genre_alias: "",
+        author_alias: "",
+      };
+
+      const rel = getRelativePathFromBase(baseUrl);
+      const parts = rel.split("/").filter(Boolean);
+      const qs = new URLSearchParams(window.location.search || "");
+
+      // Story detail / reading page: /{alias}?chuong={n}
+      if (ctx.page === "san-pham-show" || ctx.page === "san-pham-detail") {
+        if (parts.length >= 1) ctx.story_alias = String(parts[0] || "");
+        const c = parseInt(qs.get("chuong") || "0", 10);
+        ctx.chapter_num = Number.isFinite(c) ? c : 0;
+      }
+
+      // Genre page: /the-loai/{alias}
+      if (ctx.page === "tim-the-loai") {
+        ctx.genre_alias = String(qs.get("category") || (parts.length >= 2 ? parts[1] : "") || "");
+      }
+
+      // Author page: /tac-gia/{alias}
+      if (ctx.page === "tim-tac-gia") {
+        ctx.author_alias = String(qs.get("author") || (parts.length >= 2 ? parts[1] : "") || "");
+      }
+
+      // Keep payload tiny + safe
+      ["story_alias", "genre_alias", "author_alias"].forEach((k) => {
+        ctx[k] = String(ctx[k] || "")
+          .trim()
+          .replace(/[^a-zA-Z0-9_-]/g, "")
+          .slice(0, 255);
+      });
+      if (!Number.isFinite(ctx.chapter_num) || ctx.chapter_num < 0) ctx.chapter_num = 0;
+      if (ctx.chapter_num > 1000000) ctx.chapter_num = 1000000;
+
+      return ctx;
+    }
+
+    function ensureEmojiContentEl() {
+      if (emojiContent) return emojiContent;
+      if (!emojiPicker) return null;
+      const el = document.createElement("div");
+      el.className = "emoji-picker-content";
+      el.setAttribute("data-ai-chat-emoji-content", "1");
+      emojiPicker.appendChild(el);
+      emojiContent = el;
+      return el;
+    }
+
+    function renderEmojiCategory(category) {
+      const el = ensureEmojiContentEl();
+      if (!el) return;
+
+      const list = getEmojiSet(category);
+      el.innerHTML = list
+        .map((emoji) => '<button type="button" class="emoji-item" aria-label="emoji">' + escapeHtml(emoji) + "</button>")
+        .join("");
+    }
+
+    async function sendMessage() {
+      if (!loggedIn) {
+        if (loginUrl) {
+          // Gentle hint: open login in same tab
+          window.location.href = loginUrl;
+        }
+        return;
+      }
+
+      if (!input || input.disabled) return;
+      const text = String(input.value || "").trim();
+      if (!text) return;
+
+      // Close emoji picker when sending
+      toggleEmojiPicker(false);
+
+      // UI: append user bubble immediately
+      appendHtml(createOutgoingBubbleHtml(text, userAvatar));
+      input.value = "";
+
+      // UI: typing indicator
+      appendHtml(createTypingBubbleHtml(aiAvatar));
+
+      try {
+        if (!endpoint) {
+          throw new Error("Thiếu endpoint AI (data-ajax-endpoint).");
+        }
+
+        const pageCtx = collectPageContext();
+        const json = await postForm(endpoint, {
+          message: text,
+          csrf: csrf,
+          page: pageCtx.page,
+          page_url: pageCtx.page_url,
+          story_alias: pageCtx.story_alias,
+          chapter_num: pageCtx.chapter_num,
+          genre_alias: pageCtx.genre_alias,
+          author_alias: pageCtx.author_alias,
+        });
+
+        removeTyping();
+
+        if (json.status !== "success") {
+          throw new Error(json.message || "AI không thể trả lời lúc này.");
+        }
+
+        if (json.action === "cleared") {
+          historyReqId++;
+          historyLoaded = true;
+          historyCursor = 0;
+          historyHasMore = false;
+
+          resetMessagesToDayBadgeOnly();
+          if (json.html) {
+            appendHtml(String(json.html));
+          } else if (json.message) {
+            appendHtml(
+              '<div class="ai-chat-row ai-chat-row--in">' +
+                '<div class="ai-chat-user-avatar ai-chat-user-avatar--in">' +
+                  '<img loading="lazy" decoding="async" src="' + escapeHtml(aiAvatar) + '" alt="avatar ai">' +
+                "</div>" +
+                '<div class="ai-chat-bubble ai-chat-bubble--in bubble-tail-in">' +
+                  "<p>" + escapeHtml(json.message) + "</p>" +
+                "</div>" +
+              "</div>"
+            );
+          }
+          return;
+        }
+
+        if (json.html) {
+          appendHtml(String(json.html));
+        } else if (json.message) {
+          appendHtml(
+            '<div class="ai-chat-row ai-chat-row--in">' +
+              '<div class="ai-chat-user-avatar ai-chat-user-avatar--in">' +
+                '<img loading="lazy" decoding="async" src="' + escapeHtml(aiAvatar) + '" alt="avatar ai">' +
+              "</div>" +
+              '<div class="ai-chat-bubble ai-chat-bubble--in bubble-tail-in">' +
+                "<p>" + escapeHtml(json.message) + "</p>" +
+              "</div>" +
+            "</div>"
+          );
+        }
+      } catch (err) {
+        removeTyping();
+
+        const msg = err && err.message ? err.message : "Có lỗi khi gọi AI.";
+        appendHtml(
+          '<div class="ai-chat-row ai-chat-row--in">' +
+            '<div class="ai-chat-user-avatar ai-chat-user-avatar--in">' +
+              '<img loading="lazy" decoding="async" src="' + escapeHtml(aiAvatar) + '" alt="avatar ai">' +
+            "</div>" +
+            '<div class="ai-chat-bubble ai-chat-bubble--in bubble-tail-in">' +
+              "<p>" + escapeHtml(msg) + "</p>" +
+            "</div>" +
+          "</div>"
+        );
+
+        if (window.FuiToast && typeof window.FuiToast.error === "function") {
+          window.FuiToast.error(msg);
+        }
+      }
+    }
+
+    // Events
+    if (fab) {
+      fab.addEventListener("click", function (e) {
+        e.stopPropagation();
+        // If chat panel is open, close it and return
+        if (widget.classList.contains("ai-chat-widget--open")) {
+          close();
+          return;
+        }
+        toggleToolsDropdown();
+      });
+    }
+
+    if (pwaRewardTrigger) {
+      pwaRewardTrigger.addEventListener("click", function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        const requestId = beginPwaRewardDebugRequest("reward_trigger");
+        void sendPwaRewardDebugEvent("reward_trigger_click", {
+          source: "trigger_button",
+          requestId: requestId,
+        });
+        openPwaRewardModal({ requestId: requestId, source: "trigger_button" });
+      });
+    }
+
+    // Tools dropdown item clicks
+    if (toolsDropdown) {
+      toolsDropdown.addEventListener("click", function (e) {
+        const rewardItem = e.target.closest("[data-action='open-pwa-reward']");
+        if (rewardItem) {
+          e.preventDefault();
+          e.stopPropagation();
+          const requestId = beginPwaRewardDebugRequest("reward_tools");
+          void sendPwaRewardDebugEvent("reward_trigger_click", {
+            source: "tools_item",
+            requestId: requestId,
+          });
+          openPwaRewardModal({ requestId: requestId, source: "tools_item" });
+          return;
+        }
+
+        const pushToggle = e.target.closest("[data-action='toggle-pwa-push']");
+        if (pushToggle) {
+          e.preventDefault();
+          e.stopPropagation();
+          togglePwaPushSubscription();
+          return;
+        }
+
+        const pushTest = e.target.closest("[data-action='test-pwa-push']");
+        if (pushTest) {
+          e.preventDefault();
+          e.stopPropagation();
+          sendPwaPushTest();
+          return;
+        }
+
+        const item = e.target.closest("[data-action='open-chat']");
+        if (item) {
+          e.preventDefault();
+          e.stopPropagation();
+          open();
+        }
+        // For <a> links (Vườn hạt, Facebook) let default behavior proceed
+        const link = e.target.closest("a.ai-chat-tools-item");
+        if (link) {
+          closeToolsDropdown();
+        }
+      });
+    }
+
+    if (closeBtn) {
+      closeBtn.addEventListener("click", close);
+    }
+
+    if (pwaRewardModal) {
+      pwaRewardModal.addEventListener("click", function (e) {
+        const closeAction = e.target.closest("[data-action='close-pwa-reward']");
+        if (closeAction) {
+          e.preventDefault();
+          closePwaRewardModal();
+        }
+      });
+    }
+
+    if (pwaRewardClaimBtn) {
+      pwaRewardClaimBtn.addEventListener("click", function (e) {
+        e.preventDefault();
+        claimPwaReward({ auto: false, userInitiated: true, source: "manual_cta" });
+      });
+    }
+
+    if (pwaRewardRetryBtn) {
+      pwaRewardRetryBtn.addEventListener("click", function (e) {
+        e.preventDefault();
+        claimPwaReward({ auto: false, forcePrompt: true, userInitiated: true, source: "retry" });
+      });
+    }
+
+    const handlePwaPermissionReturnCheck = function () {
+      if (!loggedIn || !pwaRewardEnabled) return;
+      if (document.hidden) return;
+      if (typeof Notification !== "undefined" && typeof Notification.permission !== "undefined") {
+        pwaPushState.permission = Notification.permission;
+      }
+      updatePwaRewardStatusUi();
+    };
+    window.addEventListener("focus", handlePwaPermissionReturnCheck);
+    document.addEventListener("visibilitychange", handlePwaPermissionReturnCheck);
+    if (typeof Notification !== "undefined" && Notification.addEventListener) {
+      Notification.addEventListener("permissionchange", handlePwaPermissionReturnCheck);
+    }
+
+    if (overlay) {
+      overlay.addEventListener("click", function () {
+        closeToolsDropdown();
+        close();
+      });
+    }
+    if (emojiToggleBtn) {
+      emojiToggleBtn.addEventListener("click", function (e) {
+        e.preventDefault();
+        if (!loggedIn || (input && input.disabled)) return;
+        toggleEmojiPicker();
+      });
+    }
+
+    if (sendBtn) {
+      sendBtn.addEventListener("click", sendMessage);
+    }
+
+    if (input) {
+      input.addEventListener("keydown", function (e) {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          sendMessage();
+        }
+      });
+    }
+
+    if (messagesEl) {
+      messagesEl.addEventListener("click", function (e) {
+        const target = e.target;
+        if (!target) return;
+
+        // Close button inside quick actions
+        const closeQuick = target.closest("[data-ai-chat-close]");
+        if (closeQuick) {
+          e.preventDefault();
+          close();
+          return;
+        }
+
+        const quickBtn = target.closest(".ai-chat-quick-btn");
+        if (quickBtn && quickBtn.tagName === "BUTTON") {
+          const text = (quickBtn.textContent || "").trim();
+          if (!text) return;
+          if (input && !input.disabled) {
+            input.value = text;
+            sendMessage();
+          }
+        }
+      });
+
+      // Infinite scroll: load older messages when user scrolls to top
+      messagesEl.addEventListener("scroll", function () {
+        if (!historyLoaded || historyLoading) return;
+        if (!historyHasMore) return;
+        if (messagesEl.scrollTop <= 40) {
+          loadOlderHistory();
+        }
+      });
+    }
+
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") {
+        closePwaRewardModal();
+        toggleEmojiPicker(false);
+        closeToolsDropdown();
+        close();
+      }
+    });
+
+    document.addEventListener("click", function (e) {
+      const t = e.target;
+      if (!t) return;
+
+      // Close tools dropdown on click outside
+      if (toolsOpen && toolsDropdown) {
+        if (!t.closest(".ai-chat-tools-dropdown") && !t.closest(".ai-chat-fab")) {
+          closeToolsDropdown();
+        }
+      }
+
+      if (!emojiPicker) return;
+
+      // Click on emoji item -> insert into input
+      const emojiItem = t.closest(".emoji-item");
+      if (emojiItem && emojiPicker.contains(emojiItem)) {
+        const emoji = (emojiItem.textContent || "").trim();
+        if (emoji && input && !input.disabled) {
+          insertAtCursor(input, emoji);
+        }
+        return;
+      }
+
+      // Tabs: switch emoji category
+      const tab = t.closest(".emoji-picker-tab");
+      if (tab && emojiPicker.contains(tab)) {
+        emojiPicker.querySelectorAll(".emoji-picker-tab").forEach((el) => {
+          el.classList.remove("active");
+          try {
+            el.setAttribute("aria-selected", "false");
+          } catch (e) {}
+        });
+        tab.classList.add("active");
+        try {
+          tab.setAttribute("aria-selected", "true");
+        } catch (e) {}
+
+        const cat = String(tab.getAttribute("data-category") || "smileys");
+        renderEmojiCategory(cat);
+        return;
+      }
+
+      // Click outside emoji UI -> close
+      if (!t.closest("[data-ai-chat-emoji-toggle]") && !t.closest("[data-ai-chat-emoji-picker]")) {
+        toggleEmojiPicker(false);
+      }
+    });
+
+    window.addEventListener("resize", function () {
+      renderPwaRewardTrigger();
+      updatePwaRewardStatusUi();
+      renderPwaPushUi();
+    });
+
+    if (loggedIn && pwaRewardEnabled) {
+      setTimeout(function () {
+        loadPwaRewardStatus();
+      }, 350);
+    }
+
+    renderPwaPushUi();
+  }
+
+  document.addEventListener("DOMContentLoaded", function () {
+    const widget = document.querySelector(".ai-chat-widget");
+    if (!widget) return;
+
+    function revealWidget() {
+      try {
+        widget.hidden = false;
+      } catch (e) {
+        widget.removeAttribute("hidden");
+      }
+
+      const overlay = document.querySelector(".ai-chat-widget-overlay");
+      if (overlay) {
+        try {
+          overlay.hidden = false;
+        } catch (e) {
+          overlay.removeAttribute("hidden");
+        }
+      }
+    }
+
+    revealWidget();
+
+    try {
+      initWidget(widget);
+    } catch (e) {
+      logWidgetBootstrapError("initWidget failed", e);
+    }
+
+    if (document.readyState === "complete") {
+      return;
+    }
+
+    window.addEventListener("load", function () {
+      // Defer reveal until the page fully loads (reduce early a11y noise)
+      setTimeout(revealWidget, 0);
+    });
+  });
+})();

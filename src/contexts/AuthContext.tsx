@@ -2,8 +2,14 @@
 
 import React, { createContext, useContext, useEffect, useMemo, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import type { User as FirebaseUser } from 'firebase/auth';
 import { User } from '@/lib/types';
 import { canReadChapter as canReadChapterRule, UNLOCK_COST } from '@/lib/auth';
+import {
+  requestRegistrationOtp as requestRegistrationOtpLocal,
+  register as registerLocal,
+  getStoredUser,
+} from '@/lib/auth';
 import { signOutFirebase, subscribeToAuthState } from '@/lib/firebaseAuth';
 import { getOrCreateUserProfile, unlockStoryForUser } from '@/lib/userProfile';
 import { doc, getDoc } from 'firebase/firestore';
@@ -13,6 +19,10 @@ interface AuthContextType {
   user: User | null;
   isLoading: boolean;
   logout: () => Promise<void>;
+  requestRegistrationOtp: (
+    contact: string
+  ) => Promise<{ success: boolean; error?: string; resendInSeconds?: number; otpPreview?: string }>;
+  register: (contact: string, password: string, otp: string) => Promise<{ success: boolean; error?: string }>;
   canReadChapter: (storyId: string, chapterNumber: number) => boolean;
   unlockStory: (storyId: string) => Promise<{ success: boolean; error?: string }>;
   refreshProfile: () => Promise<void>;
@@ -33,7 +43,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [user?.userId]);
 
   useEffect(() => {
-    const unsub = subscribeToAuthState(async (fbUser: any) => {
+    const unsub = subscribeToAuthState(async (fbUser: FirebaseUser | null) => {
       try {
         setIsLoading(true);
 
@@ -66,6 +76,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     router.push('/');
   }, [router]);
 
+  const requestRegistrationOtp = useCallback(
+    async (contact: string): Promise<{ success: boolean; error?: string; resendInSeconds?: number; otpPreview?: string }> => {
+      return requestRegistrationOtpLocal(contact);
+    },
+    []
+  );
+
+  const register = useCallback(async (contact: string, password: string, otp: string) => {
+    const result = registerLocal(contact, password, otp);
+    if (result.success) {
+      const storedUser = getStoredUser();
+      if (storedUser) setUser(storedUser);
+    }
+    return result;
+  }, []);
+
   const canReadChapter = useCallback(
     (storyId: string, chapterNumber: number) => {
       return canReadChapterRule(user, storyId, chapterNumber);
@@ -89,8 +115,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (snap.exists()) setUser(snap.data() as User);
 
         return { success: true };
-      } catch (e: any) {
-        return { success: false, error: e?.message || 'Mở khóa thất bại' };
+      } catch (e: unknown) {
+        const message = e instanceof Error ? e.message : 'Mở khóa thất bại';
+        return { success: false, error: message };
       }
     },
     [user]
@@ -101,11 +128,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       user,
       isLoading,
       logout,
+      requestRegistrationOtp,
+      register,
       canReadChapter,
       unlockStory,
       refreshProfile,
     }),
-    [user, isLoading, logout, canReadChapter, unlockStory, refreshProfile]
+    [user, isLoading, logout, requestRegistrationOtp, register, canReadChapter, unlockStory, refreshProfile]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

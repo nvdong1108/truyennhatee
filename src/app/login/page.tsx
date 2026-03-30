@@ -21,8 +21,9 @@ export default function LoginPage() {
     try {
       await signInWithGoogle();
       router.push('/');
-    } catch (e: any) {
-      setError(e?.message || 'Đăng nhập Google thất bại');
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : 'Đăng nhập Google thất bại';
+      setError(message);
     } finally {
       setBusy(false);
     }
